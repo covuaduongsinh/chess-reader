@@ -23,30 +23,47 @@ Future<void> main(List<String> args) async {
 
   final samplePages = args.skip(1).map(int.parse).toList();
   final codepoints = <int, int>{};
-  var totalTokens = 0;
-  var totalResolved = 0;
-  var pagesWithMoves = 0;
 
+  // Tokenize per page, then resolve the whole book as one continuous
+  // stream — same strategy as PageMovesService.
+  final pageFullTexts = <String>[];
+  final pageTokens = <List<dynamic>>[];
   for (final page in doc.pages) {
     final text = await page.loadStructuredText();
     final full = text.fullText;
+    pageFullTexts.add(full);
     for (final code in full.codeUnits) {
       if (code >= 0x80) {
         codepoints[code] = (codepoints[code] ?? 0) + 1;
       }
     }
-    final tokens = SanTokenizer.tokenize(full);
-    final line = MoveResolver.resolve(tokens);
-    totalTokens += tokens.length;
-    totalResolved += line.moves.length;
-    if (line.moves.isNotEmpty) pagesWithMoves++;
+    pageTokens.add(SanTokenizer.tokenize(full));
+  }
 
-    if (samplePages.contains(page.pageNumber)) {
-      print('=== page ${page.pageNumber} '
-          '(tokens: ${tokens.length}, resolved: ${line.moves.length}) ===');
+  final allTokens = [
+    for (final tokens in pageTokens) ...tokens.cast<dynamic>()
+  ];
+  final line = MoveResolver.resolve(allTokens.cast());
+  final resolvedTokens = {for (final r in line.moves) r.token};
+
+  var totalTokens = 0;
+  var totalResolved = 0;
+  var pagesWithMoves = 0;
+  for (var p = 0; p < pageTokens.length; p++) {
+    final tokens = pageTokens[p];
+    final resolved =
+        tokens.where((t) => resolvedTokens.contains(t)).toList();
+    totalTokens += tokens.length;
+    totalResolved += resolved.length;
+    if (resolved.isNotEmpty) pagesWithMoves++;
+
+    if (samplePages.contains(p + 1)) {
+      print('=== page ${p + 1} '
+          '(tokens: ${tokens.length}, resolved: ${resolved.length}) ===');
+      final full = pageFullTexts[p];
       print(full.length > 1500 ? full.substring(0, 1500) : full);
       print('--- resolved sans: '
-          '${line.moves.take(30).map((m) => m.token.san).join(' ')}');
+          '${resolved.take(40).map((t) => t.san).join(' ')}');
     }
   }
 

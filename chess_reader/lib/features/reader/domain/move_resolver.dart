@@ -22,7 +22,7 @@ class ResolvedMove {
 class ResolvedLine {
   const ResolvedLine({required this.moves, required this.unresolved});
 
-  /// Tokens resolved into a legal sequence, in reading order.
+  /// Tokens resolved into legal moves, in reading order.
   final List<ResolvedMove> moves;
 
   /// Tokens that looked like SAN but were illegal in context. These render
@@ -30,30 +30,91 @@ class ResolvedLine {
   final List<MoveToken> unresolved;
 }
 
-/// v1 resolver: assumes the tokens form a single game played from [start]
-/// (default: the initial position). Unresolvable tokens are skipped without
-/// advancing the position, so one false positive in prose ("a4 pawn") does
-/// not poison the rest of the page. Anchors, variations and the recovery
-/// ladder arrive in Phase 3.
+/// Resolves tokens against the evolving game context.
+///
+/// Annotated books are not linear PGNs: prose interleaves variations
+/// ("40 axb4? loses to 40...Ra1+. However, 40 Rc1 is essential"), pages
+/// start mid-game, and multiple games share a page. The ladder, per token:
+///
+/// 1. **Game start**: `1.` + white hint that parses from the initial
+///    position reseeds the context (new game).
+/// 2. **Move-number resync**: the position seen the first time each
+///    (number, color) appeared is remembered; when the same number reappears
+///    (a variation revisiting the branch point) or the current position
+///    disagrees with the hint, resolution retries from the remembered
+///    position.
+/// 3. **Plain continuation** from the current position.
+/// 4. Otherwise the token is unresolved; the context does not advance, so a
+///    prose false positive cannot poison the rest of the page.
 class MoveResolver {
   MoveResolver._();
+
+  /// How many resolved moves a remembered branch point stays valid for.
+  static const _historyPlies = 60;
 
   static ResolvedLine resolve(List<MoveToken> tokens, {Position? start}) {
     var position = start ?? Chess.initial;
     final moves = <ResolvedMove>[];
     final unresolved = <MoveToken>[];
 
+    // First position seen for each (moveNumber, isWhite) — the branch point
+    // a variation returns to. Entries expire after [_historyPlies] resolved
+    // moves: a "26" from one game must not hijack another game's "26"
+    // hundreds of moves later.
+    final seen = <(int, bool), (Position, int)>{};
+
     for (final token in tokens) {
-      final move = position.parseSan(token.san);
+      final n = token.moveNumber;
+      final white = token.isWhiteHint;
+
+      Position? base;
+
+      // Rung 1: explicit game start.
+      if (n == 1 && white == true && Chess.initial.parseSan(token.san) != null) {
+        final hintMatches =
+            position.fullmoves == 1 && position.turn == Side.white;
+        if (!hintMatches || position.parseSan(token.san) == null) {
+          base = Chess.initial;
+          seen.clear();
+        }
+      }
+
+      // Rung 2: number disagreement or revisit → resync to the remembered
+      // branch point (if it has not expired).
+      if (base == null && n != null && white != null) {
+        final hintMatchesHere =
+            position.fullmoves == n && (position.turn == Side.white) == white;
+        final remembered = seen[(n, white)];
+        if (!hintMatchesHere &&
+            remembered != null &&
+            moves.length - remembered.$2 <= _historyPlies) {
+          if (remembered.$1.parseSan(token.san) != null) {
+            base = remembered.$1;
+          }
+        }
+      }
+
+      // Rung 3: plain continuation.
+      base ??= position;
+      var move = base.parseSan(token.san);
+      if (move == null && base != position) {
+        base = position;
+        move = base.parseSan(token.san);
+      }
+
       if (move == null) {
         unresolved.add(token);
         continue;
       }
-      final next = position.play(move);
+
+      if (n != null && white != null) {
+        seen.putIfAbsent((n, white), () => (base!, moves.length));
+      }
+      final next = base.play(move);
       moves.add(ResolvedMove(
         token: token,
         move: move,
-        positionBefore: position,
+        positionBefore: base,
         positionAfter: next,
       ));
       position = next;

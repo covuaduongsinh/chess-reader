@@ -20,11 +20,19 @@ class SanTokenizer {
   /// Lookarounds keep matches from starting inside words or numbers
   /// ("Mb4" or "e45" must not yield "b4"/"e4").
   static final RegExp _pattern = RegExp(
-    r'(?<number>\d{1,3})\s*\.(?<dots>\s*\.\.\.?|…)?'
+    // "12." / "12..." / "12. ..." style.
+    r'(?<!\d)(?<number>\d{1,3})\s*\.(?<dots>\s*\.\.\.?|…)?'
+    // Bare "38 Rc3" style (Gambit and others print no dot): the number must
+    // be directly followed by something move-shaped.
+    r'|(?<!\d)(?<barenum>\d{1,3})'
+    r'(?=\s+(?:[KQRBN][a-h1-8x]|[a-h][1-8x]|O-O|0-0))'
     r'|(?<![A-Za-z0-9=])'
+    // `l` is accepted as a destination rank: some chess fonts print rank 1
+    // as lowercase L ("Qcl" = Qc1). It is normalized to 1 below; the word
+    // boundaries above keep prose ("personal") out.
     r'(?<san>O-O-O|O-O|0-0-0|0-0'
-    r'|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]'
-    r'|[a-h](?:x[a-h])?[1-8](?:=[QRBN])?'
+    r'|[KQRBN][a-h]?[1-8]?x?[a-h][1-8l]'
+    r'|[a-h](?:x[a-h])?[1-8l](?:=[QRBN])?'
     r')'
     r'(?<suffix>[+#]?[!?]{0,2})'
     r'(?![A-Za-z0-9=])',
@@ -44,6 +52,12 @@ class SanTokenizer {
         pendingIsWhite = match.namedGroup('dots') == null;
         continue;
       }
+      final bareNumber = match.namedGroup('barenum');
+      if (bareNumber != null) {
+        pendingNumber = int.parse(bareNumber);
+        pendingIsWhite = true;
+        continue;
+      }
 
       final san = match.namedGroup('san')!;
       final check = match.namedGroup('suffix') ?? '';
@@ -51,9 +65,11 @@ class SanTokenizer {
       final checkMark = check.startsWith('+') || check.startsWith('#')
           ? check[0]
           : '';
-      // 0-0 style castling is normalized to letter-O SAN.
-      final normalizedSan =
+      // 0-0 style castling is normalized to letter-O SAN; trailing rank-1
+      // glyph collisions ("Qcl") to digits.
+      var normalizedSan =
           san.startsWith('0') ? san.replaceAll('0', 'O') : san;
+      normalizedSan = normalizedSan.replaceAll('l', '1');
 
       tokens.add(MoveToken(
         san: normalizedSan + checkMark,

@@ -1,5 +1,6 @@
 import 'package:pdfrx/pdfrx.dart';
 
+import '../../../core/models/move_token.dart';
 import '../domain/move_resolver.dart';
 import '../domain/san_tokenizer.dart';
 
@@ -21,38 +22,61 @@ class PageMovesResult {
   static const empty = PageMovesResult(pageNumber: 0, moves: []);
 }
 
-/// Extracts text from PDF pages, detects chess moves and resolves them into
-/// positions. Results are cached per (document, page): extraction is the
-/// expensive step and pages are revisited constantly while scrolling.
+/// Detects and resolves chess moves for a whole book.
 ///
-/// v1 resolves each page independently from the initial position (single-game
-/// books). Anchor-based contexts arrive in Phase 3.
+/// Chess games span pages (a page often starts at move 26), so resolution
+/// must be continuous: the entire book is tokenized and resolved as one
+/// stream, then split back into per-page results. This happens once per
+/// book, asynchronously, and is cached; pages render immediately and the
+/// overlays appear when the pass completes.
 class PageMovesService {
-  final Map<String, Future<PageMovesResult>> _cache = {};
+  final Map<String, Future<List<PageMovesResult>>> _cache = {};
 
-  Future<PageMovesResult> movesForPage(PdfPage page) {
-    final key = '${page.document.sourceName}#${page.pageNumber}';
-    return _cache.putIfAbsent(key, () => _compute(page));
+  Future<PageMovesResult> movesForPage(PdfPage page) async {
+    final all = await _resolveBook(page.document);
+    final index = page.pageNumber - 1;
+    return index < all.length ? all[index] : PageMovesResult.empty;
   }
 
-  Future<PageMovesResult> _compute(PdfPage page) async {
-    // PDFium does the heavy lifting in pdfrx's background worker.
-    final text = await page.loadStructuredText();
-    final tokens = SanTokenizer.tokenize(text.fullText);
-    final line = MoveResolver.resolve(tokens);
+  Future<List<PageMovesResult>> _resolveBook(PdfDocument document) {
+    return _cache.putIfAbsent(
+      document.sourceName,
+      () => _compute(document),
+    );
+  }
 
-    final moves = <PageMove>[];
-    for (final resolved in line.moves) {
-      final bounds = _union(
-        text.charRects,
-        resolved.token.start,
-        resolved.token.end,
-      );
-      if (bounds != null) {
-        moves.add(PageMove(resolved: resolved, bounds: bounds));
-      }
+  Future<List<PageMovesResult>> _compute(PdfDocument document) async {
+    // Extract and tokenize page by page (PDFium runs in pdfrx's background
+    // worker), keeping per-page tokens and char boxes.
+    final pageTokens = <List<MoveToken>>[];
+    final pageRects = <List<PdfRect>>[];
+    for (final page in document.pages) {
+      final text = await page.loadStructuredText();
+      pageTokens.add(SanTokenizer.tokenize(text.fullText));
+      pageRects.add(text.charRects);
     }
-    return PageMovesResult(pageNumber: page.pageNumber, moves: moves);
+
+    // Resolve the whole book as one continuous stream.
+    final allTokens = [for (final tokens in pageTokens) ...tokens];
+    final line = MoveResolver.resolve(allTokens);
+    final resolvedByToken = {
+      for (final r in line.moves) r.token: r,
+    };
+
+    final results = <PageMovesResult>[];
+    for (var p = 0; p < pageTokens.length; p++) {
+      final moves = <PageMove>[];
+      for (final token in pageTokens[p]) {
+        final resolved = resolvedByToken[token];
+        if (resolved == null) continue;
+        final bounds = _union(pageRects[p], token.start, token.end);
+        if (bounds != null) {
+          moves.add(PageMove(resolved: resolved, bounds: bounds));
+        }
+      }
+      results.add(PageMovesResult(pageNumber: p + 1, moves: moves));
+    }
+    return results;
   }
 
   /// Union of the character boxes for fullText[start..end). PDF coordinates

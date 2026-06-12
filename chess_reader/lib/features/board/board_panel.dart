@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/state/game_session.dart';
 import '../engine/presentation/engine_panel.dart';
 import 'external_links.dart';
+import 'fen_anchor_dialog.dart';
 
 /// Interactive chessground board bound to the [gameSessionProvider].
 ///
@@ -93,8 +94,9 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
                   ref.read(gameSessionProvider.notifier).backToBook(),
             ),
           ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             IconButton(
               tooltip: 'Undo move',
@@ -113,6 +115,11 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
               icon: const Icon(Icons.swap_vert),
               onPressed: () =>
                   setState(() => _orientation = _orientation.opposite),
+            ),
+            IconButton(
+              tooltip: 'Set position from FEN',
+              icon: const Icon(Icons.edit_location_alt_outlined),
+              onPressed: () => showFenAnchorDialog(context, ref),
             ),
             const SizedBox(width: 12),
             IconButton(
