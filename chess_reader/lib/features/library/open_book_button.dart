@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,14 +13,15 @@ class OpenBookButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     Future<void> pick() async {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        dialogTitle: 'Open a chess book',
+      const typeGroup = XTypeGroup(
+        label: 'Chess books',
+        extensions: ['pdf'],
+        // On iOS/macOS type groups are matched by UTI.
+        uniformTypeIdentifiers: ['com.adobe.pdf'],
       );
-      final path = result?.files.single.path;
-      if (path != null) {
-        ref.read(openedBookProvider.notifier).open(path);
+      final file = await openFile(acceptedTypeGroups: const [typeGroup]);
+      if (file != null) {
+        ref.read(openedBookProvider.notifier).open(file.path);
       }
     }
 

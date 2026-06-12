@@ -4,13 +4,17 @@ import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/state/game_session.dart';
+import '../engine/presentation/engine_panel.dart';
+import 'external_links.dart';
 
 /// Interactive chessground board bound to the [gameSessionProvider].
 ///
 /// Both sides are playable (free play): the board is the user's analysis
-/// surface, not a game against an opponent.
+/// surface, not a game against an opponent. Moves played here that leave the
+/// book line enter the variation sandbox; "back to book" snaps back.
 class BoardPanel extends ConsumerStatefulWidget {
   const BoardPanel({super.key});
 
@@ -62,6 +66,8 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
 
     return Column(
       children: [
+        const EnginePanel(),
+        const SizedBox(height: 8),
         Expanded(
           child: Center(
             child: LayoutBuilder(
@@ -77,6 +83,16 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
           ),
         ),
         const SizedBox(height: 8),
+        if (!session.onBookLine)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.keyboard_return),
+              label: const Text('Back to book'),
+              onPressed: () =>
+                  ref.read(gameSessionProvider.notifier).backToBook(),
+            ),
+          ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -97,6 +113,21 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
               icon: const Icon(Icons.swap_vert),
               onPressed: () =>
                   setState(() => _orientation = _orientation.opposite),
+            ),
+            const SizedBox(width: 12),
+            IconButton(
+              tooltip: 'Open in Lichess',
+              icon: const Icon(Icons.open_in_new),
+              onPressed: () => launchUrl(
+                Uri.parse(lichessAnalysisUrl(session.fen)),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Open in Chess.com',
+              icon: const Icon(Icons.language),
+              onPressed: () => launchUrl(
+                Uri.parse(chessComAnalysisUrl(session.fen)),
+              ),
             ),
           ],
         ),

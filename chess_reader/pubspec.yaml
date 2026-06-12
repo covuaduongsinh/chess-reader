@@ -42,12 +42,13 @@ dependencies:
   multistockfish: ^0.5.0
   flutter_onnxruntime: ^1.8.0
   image: ^4.9.1
-  file_picker: ^11.0.2
   path_provider: ^2.1.5
   archive: ^4.0.9
   url_launcher: ^6.3.2
   html: ^0.15.6
   xml: ^7.0.1
+  file_selector: ^1.1.0
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
@@ -59,6 +60,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  pdfrx_engine: ^0.4.2
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

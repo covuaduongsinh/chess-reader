@@ -106,3 +106,15 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Bundle the Stockfish engine binary when present (it is downloaded by
+# tool/fetch_stockfish.ps1, not committed: ~110 MB). The app looks it up at
+# data/engines/stockfish.exe relative to the executable.
+set(STOCKFISH_EXE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../assets/engines/stockfish-windows-x86-64-avx2.exe")
+if(EXISTS ${STOCKFISH_EXE})
+  install(FILES "${STOCKFISH_EXE}"
+    DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/engines"
+    RENAME "stockfish.exe"
+    COMPONENT Runtime)
+endif()

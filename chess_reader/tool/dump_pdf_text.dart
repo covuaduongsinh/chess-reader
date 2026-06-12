@@ -5,6 +5,7 @@
 // hit counts across the whole book.
 //
 // Usage: dart run tool/dump_pdf_text.dart <book.pdf> [samplePage...]
+// ignore_for_file: avoid_print
 import 'dart:io';
 
 import 'package:chess_reader/features/reader/domain/move_resolver.dart';
