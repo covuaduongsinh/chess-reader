@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 
 import 'package:chess_reader/features/vision/data/vision_service.dart';
 import 'package:chess_reader/features/vision/domain/board_locator.dart';
@@ -12,13 +13,16 @@ import 'package:chess_reader/features/vision/domain/square_classifier.dart';
 /// Locates the chessground package in the pub cache to read piece PNGs
 /// (tests cannot use rootBundle for package assets).
 Directory _chessgroundDir() {
-  final cache = Platform.environment['PUB_CACHE'] ??
-      '${Platform.environment['LOCALAPPDATA']}\\Pub\\Cache';
-  final hosted = Directory('$cache\\hosted\\pub.dev');
+  final env = Platform.environment;
+  final cache = env['PUB_CACHE'] ??
+      (Platform.isWindows
+          ? p.join(env['LOCALAPPDATA'] ?? '', 'Pub', 'Cache')
+          : p.join(env['HOME'] ?? '', '.pub-cache'));
+  final hosted = Directory(p.join(cache, 'hosted', 'pub.dev'));
   final candidates = hosted
       .listSync()
       .whereType<Directory>()
-      .where((d) => d.path.contains('chessground-'))
+      .where((d) => p.basename(d.path).startsWith('chessground-'))
       .toList()
     ..sort((a, b) => b.path.compareTo(a.path));
   return candidates.first;
@@ -27,10 +31,10 @@ Directory _chessgroundDir() {
 Future<Uint8List> _loadPiece(String id) async {
   final base = _chessgroundDir().path;
   for (final rel in [
-    'assets\\piece_sets\\merida\\$id.png',
-    'lib\\piece_sets\\merida\\$id.png',
+    p.join('assets', 'piece_sets', 'merida', '$id.png'),
+    p.join('lib', 'piece_sets', 'merida', '$id.png'),
   ]) {
-    final f = File('$base\\$rel');
+    final f = File(p.join(base, rel));
     if (f.existsSync()) return f.readAsBytes();
   }
   fail('merida piece $id.png not found under $base');
