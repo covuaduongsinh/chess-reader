@@ -8,6 +8,19 @@ connection or server.
 
 The Flutter app lives in [`chess_reader/`](chess_reader/).
 
+## Download
+
+**Windows:** download the installer from the latest release —
+[**chess_reader-setup-1.0.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.0.0/chess_reader-setup-1.0.0.exe)
+([all releases](https://github.com/alpinist-GH/chess-reader/releases/latest)).
+
+It's a per‑user install (no administrator rights needed). The installer is
+unsigned, so Windows SmartScreen may warn — choose **More info → Run anyway**.
+The Stockfish engine and the diagram‑recognition model are bundled; everything
+runs offline.
+
+Other platforms: build from source (see [Building](#building)).
+
 ## Features
 
 - **Clickable moves** — tap a move in the book and the side board jumps to that
