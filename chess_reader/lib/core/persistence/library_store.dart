@@ -24,6 +24,7 @@ class LibraryState {
     this.recentPaths = const [],
     this.lastPage = const {},
     this.bookmarks = const {},
+    this.viewMode = const {},
   });
 
   /// Most-recently-opened first.
@@ -35,17 +36,23 @@ class LibraryState {
   /// path → bookmarks in that book.
   final Map<String, List<Bookmark>> bookmarks;
 
+  /// path → reading view: 'pdf' (original pages) or 'html' (reflowed). PDF
+  /// only; absent until the user chooses.
+  final Map<String, String> viewMode;
+
   String? get mostRecent => recentPaths.isEmpty ? null : recentPaths.first;
 
   LibraryState copyWith({
     List<String>? recentPaths,
     Map<String, int>? lastPage,
     Map<String, List<Bookmark>>? bookmarks,
+    Map<String, String>? viewMode,
   }) {
     return LibraryState(
       recentPaths: recentPaths ?? this.recentPaths,
       lastPage: lastPage ?? this.lastPage,
       bookmarks: bookmarks ?? this.bookmarks,
+      viewMode: viewMode ?? this.viewMode,
     );
   }
 }
@@ -54,6 +61,7 @@ class LibraryStore extends Notifier<LibraryState> {
   static const _kRecent = 'lib.recent';
   static const _kLastPage = 'lib.lastPage';
   static const _kBookmarks = 'lib.bookmarks';
+  static const _kViewMode = 'lib.viewMode';
   static const _maxRecent = 12;
 
   @override
@@ -76,10 +84,17 @@ class LibraryStore extends Notifier<LibraryState> {
         ];
       });
     }
+    final viewMode = <String, String>{};
+    final vmRaw = p.getString(_kViewMode);
+    if (vmRaw != null) {
+      (jsonDecode(vmRaw) as Map<String, dynamic>)
+          .forEach((k, v) => viewMode[k] = v as String);
+    }
     return LibraryState(
       recentPaths: recent,
       lastPage: lastPage,
       bookmarks: bookmarks,
+      viewMode: viewMode,
     );
   }
 
@@ -91,6 +106,14 @@ class LibraryStore extends Notifier<LibraryState> {
     ref.read(sharedPrefsProvider).setStringList(_kRecent, recent);
   }
 
+  /// Drops a book from the recent list (its bookmarks / resume page are kept
+  /// in case it's reopened).
+  void removeRecent(String path) {
+    final recent = state.recentPaths.where((p) => p != path).toList();
+    state = state.copyWith(recentPaths: recent);
+    ref.read(sharedPrefsProvider).setStringList(_kRecent, recent);
+  }
+
   void recordPage(String path, int page) {
     final updated = {...state.lastPage, path: page};
     state = state.copyWith(lastPage: updated);
@@ -98,6 +121,15 @@ class LibraryStore extends Notifier<LibraryState> {
   }
 
   int? lastPageFor(String path) => state.lastPage[path];
+
+  /// 'pdf' or 'html', or null if the user hasn't chosen for this book yet.
+  String? viewModeFor(String path) => state.viewMode[path];
+
+  void setViewMode(String path, String mode) {
+    final updated = {...state.viewMode, path: mode};
+    state = state.copyWith(viewMode: updated);
+    ref.read(sharedPrefsProvider).setString(_kViewMode, jsonEncode(updated));
+  }
 
   List<Bookmark> bookmarksFor(String path) => state.bookmarks[path] ?? const [];
 

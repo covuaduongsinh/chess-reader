@@ -10,6 +10,7 @@ class AppSettings {
     this.engineThreads = 4,
     this.engineDepth = 30,
     this.textScale = 1.0,
+    this.boardFraction = 0.4,
   });
 
   final PieceSet pieceSet;
@@ -22,6 +23,9 @@ class AppSettings {
   /// Multiplier applied to EPUB body text.
   final double textScale;
 
+  /// Fraction of the reader width given to the side board (wide layout).
+  final double boardFraction;
+
   ChessboardColorScheme get boardColors =>
       boardThemes[boardThemeName] ?? ChessboardColorScheme.brown;
 
@@ -31,6 +35,7 @@ class AppSettings {
     int? engineThreads,
     int? engineDepth,
     double? textScale,
+    double? boardFraction,
   }) {
     return AppSettings(
       pieceSet: pieceSet ?? this.pieceSet,
@@ -38,6 +43,7 @@ class AppSettings {
       engineThreads: engineThreads ?? this.engineThreads,
       engineDepth: engineDepth ?? this.engineDepth,
       textScale: textScale ?? this.textScale,
+      boardFraction: boardFraction ?? this.boardFraction,
     );
   }
 }
@@ -64,6 +70,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const _kThreads = 'engineThreads';
   static const _kDepth = 'engineDepth';
   static const _kTextScale = 'textScale';
+  static const _kBoardFraction = 'boardFraction';
 
   SharedPreferences get _prefs => ref.read(sharedPrefsProvider);
 
@@ -79,6 +86,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       engineThreads: p.getInt(_kThreads) ?? 4,
       engineDepth: p.getInt(_kDepth) ?? 30,
       textScale: p.getDouble(_kTextScale) ?? 1.0,
+      boardFraction: p.getDouble(_kBoardFraction) ?? 0.4,
     );
   }
 
@@ -105,6 +113,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
   void setTextScale(double scale) {
     _prefs.setDouble(_kTextScale, scale);
     state = state.copyWith(textScale: scale);
+  }
+
+  void setBoardFraction(double fraction) {
+    final clamped = fraction.clamp(0.25, 0.6);
+    _prefs.setDouble(_kBoardFraction, clamped);
+    state = state.copyWith(boardFraction: clamped);
   }
 }
 

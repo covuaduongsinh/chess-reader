@@ -1,4 +1,3 @@
-import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -38,15 +37,13 @@ Future<void> showFenAnchorDialog(BuildContext context, WidgetRef ref) async {
           ),
           FilledButton(
             onPressed: () {
-              try {
-                final setup = Setup.parseFen(controller.text.trim());
-                final position = Chess.fromSetup(setup);
-                ref.read(gameSessionProvider.notifier).setPosition(position);
+              final ok = ref
+                  .read(gameSessionProvider.notifier)
+                  .loadFen(controller.text.trim());
+              if (ok) {
                 Navigator.of(context).pop();
-              } on FenException {
+              } else {
                 setState(() => error = 'Invalid FEN');
-              } on PositionSetupException {
-                setState(() => error = 'Illegal position');
               }
             },
             child: const Text('Set position'),

@@ -8,6 +8,26 @@ import '../state/book_providers.dart';
 import '../state/reader_nav.dart';
 import 'epub_book_view.dart';
 
+bool _isEpubPath(String path) => path.toLowerCase().endsWith('.epub');
+
+/// True when the open book is rendered as an HTML chapter list (EPUB, or PDF
+/// in reading view): jumps scroll the list instead of paging the PDF viewer.
+bool _htmlList(WidgetRef ref, String path) =>
+    _isEpubPath(path) ||
+    ref.read(libraryStoreProvider).viewMode[path] == 'html';
+
+/// PDF table of contents, loaded straight from the file so it works in both
+/// the raster and reading views (the raster viewer may not be attached).
+final pdfOutlineProvider =
+    FutureProvider.family<List<PdfOutlineNode>, String>((ref, path) async {
+  final doc = await PdfDocument.openFile(path);
+  try {
+    return await doc.loadOutline();
+  } finally {
+    doc.dispose();
+  }
+});
+
 /// Side panel for in-book navigation: table of contents, full-text search,
 /// and bookmarks. Works for both PDF and EPUB.
 class ReaderDrawer extends ConsumerWidget {
@@ -35,7 +55,7 @@ class ReaderDrawer extends ConsumerWidget {
             ),
             Expanded(
               child: TabBarView(children: [
-                _isEpub ? _EpubToc(path: path) : _PdfToc(),
+                _isEpub ? _EpubToc(path: path) : _PdfToc(path: path),
                 _SearchTab(),
                 _BookmarksTab(path: path),
               ]),
@@ -47,8 +67,10 @@ class ReaderDrawer extends ConsumerWidget {
   }
 }
 
-void _jump(WidgetRef ref, BuildContext context, bool isEpub, int page) {
-  if (isEpub) {
+/// Jumps to a 1-based page/chapter. HTML-rendered books (EPUB, or PDF in
+/// reading view) scroll the chapter list; the raster PDF viewer uses goToPage.
+void _jump(WidgetRef ref, BuildContext context, bool htmlList, int page) {
+  if (htmlList) {
     ref.read(epubJumpProvider.notifier).requestChapter(page - 1);
   } else {
     ref.read(pdfControllerProvider.notifier).goToPage(page);
@@ -57,19 +79,17 @@ void _jump(WidgetRef ref, BuildContext context, bool isEpub, int page) {
 }
 
 class _PdfToc extends ConsumerWidget {
+  const _PdfToc({required this.path});
+  final String path;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(pdfControllerProvider);
-    if (controller == null || !controller.isReady) {
-      return const Center(child: Text('Loading…'));
-    }
-    return FutureBuilder<List<PdfOutlineNode>>(
-      future: controller.document.loadOutline(),
-      builder: (context, snapshot) {
-        final outline = snapshot.data;
-        if (outline == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    final outlineAsync = ref.watch(pdfOutlineProvider(path));
+    final htmlList = _htmlList(ref, path);
+    return outlineAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('$e')),
+      data: (outline) {
         if (outline.isEmpty) {
           return const Center(child: Text('No table of contents'));
         }
@@ -78,10 +98,12 @@ class _PdfToc extends ConsumerWidget {
           for (final n in nodes) {
             tiles.add(ListTile(
               dense: true,
-              contentPadding: EdgeInsets.only(left: 16.0 + depth * 16, right: 16),
-              title: Text(n.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+              contentPadding:
+                  EdgeInsets.only(left: 16.0 + depth * 16, right: 16),
+              title:
+                  Text(n.title, maxLines: 2, overflow: TextOverflow.ellipsis),
               onTap: n.dest != null
-                  ? () => _jump(ref, context, false, n.dest!.pageNumber)
+                  ? () => _jump(ref, context, htmlList, n.dest!.pageNumber)
                   : null,
             ));
             walk(n.children, depth + 1);
@@ -135,10 +157,9 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
   @override
   Widget build(BuildContext context) {
     final search = ref.watch(bookSearchProvider);
-    final isEpub = ref
-        .read(openedBookProvider)!
-        .toLowerCase()
-        .endsWith('.epub');
+    final path = ref.read(openedBookProvider)!;
+    final isEpub = _isEpubPath(path);
+    final htmlList = _htmlList(ref, path);
     return Column(
       children: [
         Padding(
@@ -179,7 +200,7 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
                       leading: Text(isEpub ? 'Ch ${hit.page}' : 'p${hit.page}'),
                       title: Text(hit.snippet,
                           maxLines: 3, overflow: TextOverflow.ellipsis),
-                      onTap: () => _jump(ref, context, isEpub, hit.page),
+                      onTap: () => _jump(ref, context, htmlList, hit.page),
                     );
                   },
                 ),
@@ -227,7 +248,8 @@ class _BookmarksTab extends ConsumerWidget {
     ref.watch(libraryStoreProvider);
     final store = ref.read(libraryStoreProvider.notifier);
     final bookmarks = store.bookmarksFor(path);
-    final isEpub = path.toLowerCase().endsWith('.epub');
+    final isEpub = _isEpubPath(path);
+    final htmlList = _htmlList(ref, path);
 
     return Column(
       children: [
@@ -261,7 +283,7 @@ class _BookmarksTab extends ConsumerWidget {
                       onPressed: () => store.removeBookmark(path, i),
                     ),
                     onTap: () =>
-                        _jump(ref, context, isEpub, bookmarks[i].page),
+                        _jump(ref, context, htmlList, bookmarks[i].page),
                   ),
                 ),
         ),

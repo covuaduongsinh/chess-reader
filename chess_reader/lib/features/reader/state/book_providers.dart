@@ -5,6 +5,7 @@ import '../../../core/persistence/library_store.dart';
 import '../../../core/state/game_session.dart';
 import '../data/page_moves_service.dart';
 import '../domain/move_resolver.dart';
+import 'reader_nav.dart';
 
 /// Path of the currently opened book, or null when no book is open.
 final openedBookProvider = NotifierProvider<OpenedBook, String?>(
@@ -17,10 +18,23 @@ class OpenedBook extends Notifier<String?> {
 
   void open(String path) {
     ref.read(libraryStoreProvider.notifier).recordOpened(path);
+    _resetReadingState();
     state = path;
   }
 
-  void close() => state = null;
+  void close() {
+    _resetReadingState();
+    state = null;
+  }
+
+  /// Clears per-book transient state so switching books doesn't carry over the
+  /// previous book's board, selected move, or scroll/jump intent.
+  void _resetReadingState() {
+    ref.read(activeLineProvider.notifier).clear();
+    ref.read(currentPageProvider.notifier).set(1);
+    ref.read(epubJumpProvider.notifier).consumed();
+    ref.read(gameSessionProvider.notifier).reset();
+  }
 }
 
 final pageMovesServiceProvider = Provider((ref) => PageMovesService());
@@ -52,6 +66,8 @@ class ActiveLine {
 class ActiveLineNotifier extends Notifier<ActiveLine?> {
   @override
   ActiveLine? build() => null;
+
+  void clear() => state = null;
 
   /// User tapped a move in the book: show its resulting position.
   void select(List<ResolvedMove> moves, int index, Object sourceKey) {

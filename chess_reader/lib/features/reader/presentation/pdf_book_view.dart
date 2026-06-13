@@ -1,13 +1,12 @@
-import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../../../core/persistence/library_store.dart';
 import '../../../core/state/game_session.dart';
-import '../../vision/state/diagram_provider.dart';
 import '../data/page_moves_service.dart';
 import '../state/book_providers.dart';
+import '../state/conversion_provider.dart';
 import '../state/reader_nav.dart';
 
 /// PDF viewer with clickable chess moves overlaid on each page. Attaches its
@@ -51,7 +50,8 @@ class _PdfBookViewState extends ConsumerState<PdfBookView> {
         },
         pageOverlaysBuilder: (context, pageRect, page) => [
           _PageMovesOverlay(page: page, pageSize: pageRect.size),
-          _DiagramAnchorsOverlay(page: page, pageSize: pageRect.size),
+          _DiagramAnchorsOverlay(
+              page: page, pageSize: pageRect.size, path: widget.path),
         ],
       ),
     );
@@ -133,72 +133,78 @@ class _PageMovesOverlay extends ConsumerWidget {
   }
 }
 
-/// Diagram-recognition layer: a scan button per page; after scanning,
-/// recognized diagrams get a tappable chip that anchors the board to the
-/// printed position.
+/// Auto-detected diagrams for one page (from the up-front conversion). Each
+/// recognized board becomes a tappable hotspot that loads its position onto
+/// the side board — no scan button.
 class _DiagramAnchorsOverlay extends ConsumerWidget {
-  const _DiagramAnchorsOverlay({required this.page, required this.pageSize});
+  const _DiagramAnchorsOverlay({
+    required this.page,
+    required this.pageSize,
+    required this.path,
+  });
 
   final PdfPage page;
   final Size pageSize;
+  final String path;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(diagramScansProvider);
-    final scans = ref.read(diagramScansProvider.notifier);
-    final results = scans.resultsFor(page);
-    final scanning = scans.isScanning(page);
+    final conversion = ref.watch(conversionProvider(path));
+    final diagrams = conversion.maybeWhen(
+      data: (c) => c.diagramsFor(page.pageNumber),
+      orElse: () => const [],
+    );
+    if (diagrams.isEmpty) return const SizedBox.shrink();
 
     // Raster pixels (200 dpi) → page-widget coordinates.
     final toWidget = pageSize.width / (page.width * 200 / 72);
+    final highlight = Theme.of(context).colorScheme.primary;
 
     return Stack(
       children: [
-        Positioned(
-          top: 4,
-          right: 4,
-          child: scanning
-              ? const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        for (final d in diagrams)
+          Positioned(
+            left: d.left * toWidget,
+            top: d.top * toWidget,
+            width: d.size * toWidget,
+            height: d.size * toWidget,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                final ok =
+                    ref.read(gameSessionProvider.notifier).loadFen(d.fen);
+                if (!ok) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content:
+                          Text('Could not read this diagram reliably')));
+                }
+              },
+              child: Tooltip(
+                message: 'Tap to load this position',
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: highlight.withValues(alpha: 0.6), width: 2),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                )
-              : results == null
-                  ? IconButton.filledTonal(
-                      tooltip: 'Scan page for diagrams',
-                      iconSize: 18,
-                      icon: const Icon(Icons.center_focus_strong),
-                      onPressed: () => scans.scan(page),
-                    )
-                  : const SizedBox.shrink(),
-        ),
-        if (results != null)
-          for (final r in results)
-            Positioned(
-              left: r.left * toWidget,
-              top: r.top * toWidget - 14,
-              child: ActionChip(
-                visualDensity: VisualDensity.compact,
-                avatar: const Icon(Icons.push_pin, size: 14),
-                label: const Text('Set board'),
-                onPressed: () {
-                  try {
-                    final position =
-                        Chess.fromSetup(Setup.parseFen(r.fen));
-                    ref
-                        .read(gameSessionProvider.notifier)
-                        .setPosition(position);
-                  } on Exception {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content:
-                            Text('Could not read this diagram reliably')));
-                  }
-                },
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: highlight,
+                        borderRadius: const BorderRadius.only(
+                            bottomRight: Radius.circular(4)),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 2),
+                      child: const Icon(Icons.touch_app,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
+                ),
               ),
             ),
+          ),
       ],
     );
   }

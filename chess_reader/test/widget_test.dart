@@ -1,13 +1,13 @@
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:chess_reader/app.dart';
 import 'package:chess_reader/core/settings/app_settings.dart';
 import 'package:chess_reader/core/state/game_session.dart';
+import 'package:chess_reader/features/board/board_panel.dart';
 
 void main() {
   group('GameSession', () {
@@ -52,18 +52,18 @@ void main() {
     });
   });
 
-  testWidgets('app renders an interactive board that follows the session',
-      (tester) async {
-    // Wide surface so the side-by-side layout (board always visible) is used.
-    tester.view.physicalSize = const Size(1400, 900);
+  testWidgets('the board follows the game session', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
+    // The board appears once a book is open; test the panel directly so the
+    // board-follows-session wiring is covered without a real book file.
     await tester.pumpWidget(ProviderScope(
       overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
-      child: const ChessReaderApp(),
+      child: const MaterialApp(home: Scaffold(body: BoardPanel())),
     ));
     await tester.pump();
 

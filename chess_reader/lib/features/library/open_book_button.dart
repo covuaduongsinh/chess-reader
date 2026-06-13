@@ -5,10 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../reader/state/book_providers.dart';
 
 class OpenBookButton extends ConsumerWidget {
-  const OpenBookButton({super.key, this.filled = false});
+  const OpenBookButton({super.key, this.filled = false, this.tooltip});
 
   /// Render as a prominent filled button (empty state) instead of an icon.
   final bool filled;
+
+  /// Tooltip for the icon variant; defaults to 'Open book'.
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -33,7 +36,7 @@ class OpenBookButton extends ConsumerWidget {
       );
     }
     return IconButton(
-      tooltip: 'Open book',
+      tooltip: tooltip ?? 'Open book',
       icon: const Icon(Icons.folder_open),
       onPressed: pick,
     );

@@ -42,8 +42,18 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
   }
 
   GameData _gameDataFor(GameSessionState s) {
+    // Display-only boards (unvalidated diagram placements) render the pieces
+    // but offer no legal moves or check highlight.
+    if (!s.legal) {
+      return GameData(
+        fen: s.fen,
+        playerSide: PlayerSide.none,
+        validMoves: const {},
+        sideToMove: Side.white,
+      );
+    }
     return GameData(
-      fen: s.position.fen,
+      fen: s.fen,
       lastMove: s.lastMove,
       playerSide:
           s.position.turn == Side.white ? PlayerSide.white : PlayerSide.black,

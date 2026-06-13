@@ -93,6 +93,8 @@ class AnalysisNotifier extends Notifier<AnalysisState> {
   @override
   AnalysisState build() {
     ref.listen(gameSessionProvider, (previous, next) {
+      // Display-only boards (unvalidated diagram placements) aren't analyzed.
+      if (!next.legal) return;
       if (previous?.fen != next.fen) _onPositionChanged(next.fen);
     });
     ref.onDispose(() async {

@@ -11,9 +11,11 @@ import 'package:xml/xml.dart';
 import '../../../core/models/move_token.dart';
 import '../domain/move_resolver.dart';
 import '../domain/san_tokenizer.dart';
+import 'book_conversion.dart';
 
 /// One spine chapter, preprocessed: every resolved move is wrapped in a
-/// `<chessmove idx="...">` element that the view renders as a tappable span.
+/// `<chessmove idx="...">` element and every recognized diagram image in a
+/// `<chessdiagram fen="...">` element, both rendered as tappable widgets.
 class EpubChapter {
   const EpubChapter({
     required this.title,
@@ -23,7 +25,8 @@ class EpubChapter {
 
   final String title;
 
-  /// XHTML with `<chessmove>` wrappers and images inlined as data URIs.
+  /// XHTML with `<chessmove>` / `<chessdiagram>` wrappers and images inlined
+  /// as data URIs.
   final String html;
 
   /// Resolved moves of this chapter, indexed by the `idx` attribute.
@@ -37,28 +40,27 @@ class EpubBook {
   final List<EpubChapter> chapters;
 }
 
-/// Parses an EPUB (zip + XHTML) directly — no third-party EPUB package:
-/// we need full DOM access to wrap move tokens, and EPUB's structure
-/// (container.xml → OPF manifest/spine) is simple enough to read directly.
-Future<EpubBook> loadEpubBook(String path) async {
-  final bytes = await File(path).readAsBytes();
+/// Spine of an opened EPUB: the zip archive plus the ordered chapter hrefs.
+class _Spine {
+  _Spine(this.archive, this.title, this.hrefs);
+  final Archive archive;
+  final String title;
+  final List<String> hrefs;
+}
+
+_Spine _openSpine(String path, Uint8List bytes) {
   final archive = ZipDecoder().decodeBytes(bytes);
 
   String readEntry(String name) {
     final file = archive.findFile(name) ??
         archive.findFile(name.replaceAll('\\', '/'));
-    if (file == null) {
-      throw FormatException('EPUB entry not found: $name');
-    }
+    if (file == null) throw FormatException('EPUB entry not found: $name');
     return utf8.decode(file.content as List<int>, allowMalformed: true);
   }
 
-  // container.xml points at the OPF package file.
   final container = XmlDocument.parse(readEntry('META-INF/container.xml'));
-  final opfPath = container
-      .findAllElements('rootfile')
-      .first
-      .getAttribute('full-path')!;
+  final opfPath =
+      container.findAllElements('rootfile').first.getAttribute('full-path')!;
   final opfDir = p.posix.dirname(opfPath);
   final opf = XmlDocument.parse(readEntry(opfPath));
 
@@ -66,32 +68,42 @@ Future<EpubBook> loadEpubBook(String path) async {
       ? opf.findAllElements('dc:title').first.innerText
       : p.basenameWithoutExtension(path);
 
-  // Manifest: id → href; spine gives reading order.
   final manifest = <String, ({String href, String type})>{};
   for (final item in opf.findAllElements('item')) {
     final id = item.getAttribute('id');
     final href = item.getAttribute('href');
     if (id != null && href != null) {
-      manifest[id] =
-          (href: href, type: item.getAttribute('media-type') ?? '');
+      manifest[id] = (href: href, type: item.getAttribute('media-type') ?? '');
     }
   }
-  final spineHrefs = <String>[
+  final hrefs = <String>[
     for (final ref in opf.findAllElements('itemref'))
       if (manifest[ref.getAttribute('idref')] case final item?)
         if (item.type.contains('xhtml') || item.type.contains('html'))
           p.posix.normalize(p.posix.join(opfDir, item.href)),
   ];
+  return _Spine(archive, title, hrefs);
+}
 
-  // Parse all chapters, collect text + tokens, resolve the whole book as
-  // one continuous stream (games span chapters).
+String _entryText(Archive archive, String name) =>
+    utf8.decode(archive.findFile(name)!.content as List<int>,
+        allowMalformed: true);
+
+/// Parses an EPUB into interactive chapters. Games span chapters, so the whole
+/// book is tokenized and resolved as one stream. When [diagrams] is provided
+/// (from the up-front conversion), the recognized board images are wrapped in
+/// `<chessdiagram>` so the reader can show their FEN and load them on tap.
+Future<EpubBook> loadEpubBook(String path, {BookConversion? diagrams}) async {
+  final bytes = await File(path).readAsBytes();
+  final spine = _openSpine(path, bytes);
+
   final documents = <dom.Document>[];
   final chapterNodeIndexes = <List<({dom.Text node, int start})>>[];
   final chapterTokens = <List<MoveToken>>[];
 
-  for (final href in spineHrefs) {
-    final doc = html_parser.parse(readEntry(href));
-    _inlineImages(doc, archive, p.posix.dirname(href));
+  for (final href in spine.hrefs) {
+    final doc = html_parser.parse(_entryText(spine.archive, href));
+    _inlineImages(doc, spine.archive, p.posix.dirname(href));
     final (text, nodeIndex) = _collectText(doc.body);
     documents.add(doc);
     chapterNodeIndexes.add(nodeIndex);
@@ -104,15 +116,13 @@ Future<EpubBook> loadEpubBook(String path) async {
 
   final chapters = <EpubChapter>[];
   for (var c = 0; c < documents.length; c++) {
-    final moves = <ResolvedMove>[];
-    // Wrap from last to first so earlier offsets stay valid.
-    final tokensHere = chapterTokens[c]
-        .where((t) => resolvedByToken.containsKey(t))
-        .toList();
-    for (final token in tokensHere) {
-      moves.add(resolvedByToken[token]!);
-    }
+    final tokensHere =
+        chapterTokens[c].where(resolvedByToken.containsKey).toList();
+    final moves = [for (final t in tokensHere) resolvedByToken[t]!];
     _wrapTokens(chapterNodeIndexes[c], tokensHere);
+    if (diagrams != null) {
+      _wrapDiagrams(documents[c], diagrams.diagramsFor(c));
+    }
     final titleEl = documents[c].querySelector('h1, h2, h3, title');
     chapters.add(EpubChapter(
       title: titleEl?.text.trim().isNotEmpty == true
@@ -122,11 +132,27 @@ Future<EpubBook> loadEpubBook(String path) async {
       moves: moves,
     ));
   }
-  return EpubBook(title: title, chapters: chapters);
+  return EpubBook(title: spine.title, chapters: chapters);
 }
 
-/// Concatenates the text nodes under [root] (skipping scripts/styles) and
-/// records each node's start offset in the combined string.
+/// For each chapter, the bytes of every `<img>` in document order (null where
+/// the image can't be resolved). Used by the conversion pass to detect boards;
+/// the index aligns with [loadEpubBook]'s `<img>` ordering.
+Future<List<List<Uint8List?>>> epubChapterImages(String path) async {
+  final bytes = await File(path).readAsBytes();
+  final spine = _openSpine(path, bytes);
+  final result = <List<Uint8List?>>[];
+  for (final href in spine.hrefs) {
+    final doc = html_parser.parse(_entryText(spine.archive, href));
+    final dir = p.posix.dirname(href);
+    result.add([
+      for (final img in doc.querySelectorAll('img'))
+        _resolveImageBytes(spine.archive, dir, img.attributes['src']),
+    ]);
+  }
+  return result;
+}
+
 const _blockTags = {'p', 'div', 'br', 'h1', 'h2', 'h3', 'li', 'td'};
 
 (String, List<({dom.Text node, int start})>) _collectText(dom.Element? root) {
@@ -145,7 +171,6 @@ const _blockTags = {'p', 'div', 'br', 'h1', 'h2', 'h3', 'li', 'td'};
     for (final child in node.nodes) {
       walk(child);
     }
-    // Block boundaries separate text so moves cannot span paragraphs.
     if (node is dom.Element && _blockTags.contains(node.localName)) {
       buffer.write('\n');
     }
@@ -155,15 +180,10 @@ const _blockTags = {'p', 'div', 'br', 'h1', 'h2', 'h3', 'li', 'td'};
   return (buffer.toString(), index);
 }
 
-/// Replaces each token's text with a `<chessmove idx="...">` element.
-/// A text node usually carries several moves ("1.e4 e5 2.Nf3"), so each
-/// node is rebuilt once with all its tokens. Tokens spanning nodes are left
-/// unwrapped (rare; they stay plain text).
 void _wrapTokens(
   List<({dom.Text node, int start})> nodeIndex,
   List<MoveToken> tokens,
 ) {
-  // Group token list indices (= the `idx` attribute) by owning text node.
   final byNode = <int, List<int>>{};
   for (var t = 0; t < tokens.length; t++) {
     for (var n = 0; n < nodeIndex.length; n++) {
@@ -206,24 +226,44 @@ void _wrapTokens(
   });
 }
 
-/// Replaces `<img src>` with base64 data URIs so chapters are
-/// self-contained (the view decodes them without zip access).
+/// Wraps the board `<img>`s of a chapter (identified by their occurrence index,
+/// stored as the diagram's `anchor`) in `<chessdiagram fen="...">`.
+void _wrapDiagrams(dom.Document doc, List<ConvertedDiagram> diagrams) {
+  if (diagrams.isEmpty) return;
+  final imgs = doc.querySelectorAll('img');
+  for (final d in diagrams) {
+    if (d.anchor < 0 || d.anchor >= imgs.length) continue;
+    final img = imgs[d.anchor];
+    final parent = img.parentNode;
+    if (parent == null) continue;
+    final at = parent.nodes.indexOf(img);
+    final wrapper = dom.Element.tag('chessdiagram')..attributes['fen'] = d.fen;
+    parent.nodes.removeAt(at);
+    wrapper.append(img);
+    parent.nodes.insert(at, wrapper);
+  }
+}
+
 void _inlineImages(dom.Document doc, Archive archive, String baseDir) {
   for (final img in doc.querySelectorAll('img')) {
     final src = img.attributes['src'];
-    if (src == null || src.startsWith('data:')) continue;
-    final entryPath = p.posix.normalize(p.posix.join(baseDir, src));
-    final file = archive.findFile(entryPath);
-    if (file == null) continue;
-    final data = file.content as List<int>;
-    final ext = p.extension(src).toLowerCase();
+    final data = _resolveImageBytes(archive, baseDir, src);
+    if (data == null) continue;
+    final ext = p.extension(src!).toLowerCase();
     final mime = switch (ext) {
       '.png' => 'image/png',
       '.gif' => 'image/gif',
       '.svg' => 'image/svg+xml',
       _ => 'image/jpeg',
     };
-    img.attributes['src'] =
-        'data:$mime;base64,${base64Encode(Uint8List.fromList(data))}';
+    img.attributes['src'] = 'data:$mime;base64,${base64Encode(data)}';
   }
+}
+
+Uint8List? _resolveImageBytes(Archive archive, String baseDir, String? src) {
+  if (src == null || src.startsWith('data:')) return null;
+  final entryPath = p.posix.normalize(p.posix.join(baseDir, src));
+  final file = archive.findFile(entryPath);
+  if (file == null) return null;
+  return Uint8List.fromList(file.content as List<int>);
 }
