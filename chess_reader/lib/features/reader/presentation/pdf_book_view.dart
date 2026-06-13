@@ -46,7 +46,7 @@ class _PageMovesOverlay extends ConsumerWidget {
           return const SizedBox.shrink();
         }
         final isActivePage =
-            active != null && active.result.pageNumber == result.pageNumber;
+            active != null && active.sourceKey == result.pageNumber;
         return Stack(
           children: [
             for (var i = 0; i < result.moves.length; i++)
@@ -83,8 +83,10 @@ class _PageMovesOverlay extends ConsumerWidget {
       height: padded.height,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () =>
-            ref.read(activeLineProvider.notifier).select(result, index),
+        onTap: () => ref.read(activeLineProvider.notifier).select(
+            [for (final m in result.moves) m.resolved],
+            index,
+            result.pageNumber),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: highlight.withValues(alpha: selected ? 0.28 : 0.10),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/state/game_session.dart';
 import '../data/page_moves_service.dart';
+import '../domain/move_resolver.dart';
 
 /// Path of the currently opened book, or null when no book is open.
 final openedBookProvider = NotifierProvider<OpenedBook, String?>(
@@ -20,18 +21,28 @@ class OpenedBook extends Notifier<String?> {
 
 final pageMovesServiceProvider = Provider((ref) => PageMovesService());
 
-/// The sequence of book moves the user is currently stepping through:
-/// the resolved moves of one page, plus the index of the move on the board.
+/// The sequence of book moves the user is currently stepping through —
+/// the resolved moves of one PDF page or EPUB chapter — plus the index of
+/// the move shown on the board. Source-agnostic so the move strip and
+/// prev/next work for both formats.
 class ActiveLine {
-  const ActiveLine({required this.result, required this.index});
+  const ActiveLine({
+    required this.moves,
+    required this.index,
+    required this.sourceKey,
+  });
 
-  final PageMovesResult result;
+  final List<ResolvedMove> moves;
 
-  /// Index into [PageMovesResult.moves] of the move currently shown.
+  /// Index into [moves] of the move currently shown.
   final int index;
 
+  /// Identifies where the line came from (PDF page number, EPUB chapter
+  /// index) so views can highlight the selected move.
+  final Object sourceKey;
+
   bool get hasPrevious => index > 0;
-  bool get hasNext => index < result.moves.length - 1;
+  bool get hasNext => index < moves.length - 1;
 }
 
 class ActiveLineNotifier extends Notifier<ActiveLine?> {
@@ -39,29 +50,31 @@ class ActiveLineNotifier extends Notifier<ActiveLine?> {
   ActiveLine? build() => null;
 
   /// User tapped a move in the book: show its resulting position.
-  void select(PageMovesResult result, int index) {
-    state = ActiveLine(result: result, index: index);
+  void select(List<ResolvedMove> moves, int index, Object sourceKey) {
+    state = ActiveLine(moves: moves, index: index, sourceKey: sourceKey);
     _applyToBoard();
   }
 
   void next() {
     final line = state;
     if (line == null || !line.hasNext) return;
-    state = ActiveLine(result: line.result, index: line.index + 1);
+    state = ActiveLine(
+        moves: line.moves, index: line.index + 1, sourceKey: line.sourceKey);
     _applyToBoard();
   }
 
   void previous() {
     final line = state;
     if (line == null || !line.hasPrevious) return;
-    state = ActiveLine(result: line.result, index: line.index - 1);
+    state = ActiveLine(
+        moves: line.moves, index: line.index - 1, sourceKey: line.sourceKey);
     _applyToBoard();
   }
 
   void _applyToBoard() {
     final line = state;
     if (line == null) return;
-    final resolved = line.result.moves[line.index].resolved;
+    final resolved = line.moves[line.index];
     ref.read(gameSessionProvider.notifier).setPosition(
           resolved.positionAfter,
           lastMove: resolved.move is NormalMove

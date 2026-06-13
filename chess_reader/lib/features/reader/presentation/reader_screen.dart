@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../board/board_panel.dart';
 import '../../library/open_book_button.dart';
 import '../state/book_providers.dart';
+import 'epub_book_view.dart';
 import 'move_strip.dart';
 import 'pdf_book_view.dart';
 
@@ -41,7 +42,9 @@ class ReaderScreen extends ConsumerWidget {
                         ],
                       ),
                     )
-                  : PdfBookView(path: bookPath),
+                  : bookPath.toLowerCase().endsWith('.epub')
+                      ? EpubBookView(path: bookPath)
+                      : PdfBookView(path: bookPath),
             ),
           ),
           Expanded(

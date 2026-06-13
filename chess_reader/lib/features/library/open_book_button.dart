@@ -15,9 +15,9 @@ class OpenBookButton extends ConsumerWidget {
     Future<void> pick() async {
       const typeGroup = XTypeGroup(
         label: 'Chess books',
-        extensions: ['pdf'],
+        extensions: ['pdf', 'epub'],
         // On iOS/macOS type groups are matched by UTI.
-        uniformTypeIdentifiers: ['com.adobe.pdf'],
+        uniformTypeIdentifiers: ['com.adobe.pdf', 'org.idpf.epub-container'],
       );
       final file = await openFile(acceptedTypeGroups: const [typeGroup]);
       if (file != null) {

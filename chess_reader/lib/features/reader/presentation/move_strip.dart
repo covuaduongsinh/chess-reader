@@ -29,10 +29,10 @@ class MoveStrip extends ConsumerWidget {
             height: 36,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: active.result.moves.length,
+              itemCount: active.moves.length,
               separatorBuilder: (_, _) => const SizedBox(width: 4),
               itemBuilder: (context, i) {
-                final token = active.result.moves[i].resolved.token;
+                final token = active.moves[i].token;
                 final label = token.moveNumber != null
                     ? (token.isWhiteHint == false
                         ? '${token.moveNumber}...${token.san}'
@@ -42,7 +42,8 @@ class MoveStrip extends ConsumerWidget {
                   label: Text(label),
                   selected: i == active.index,
                   visualDensity: VisualDensity.compact,
-                  onSelected: (_) => notifier.select(active.result, i),
+                  onSelected: (_) =>
+                      notifier.select(active.moves, i, active.sourceKey),
                 );
               },
             ),
