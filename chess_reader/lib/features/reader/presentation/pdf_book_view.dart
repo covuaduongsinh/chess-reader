@@ -1,7 +1,10 @@
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../../../core/state/game_session.dart';
+import '../../vision/state/diagram_provider.dart';
 import '../data/page_moves_service.dart';
 import '../state/book_providers.dart';
 
@@ -18,6 +21,7 @@ class PdfBookView extends ConsumerWidget {
       params: PdfViewerParams(
         pageOverlaysBuilder: (context, pageRect, page) => [
           _PageMovesOverlay(page: page, pageSize: pageRect.size),
+          _DiagramAnchorsOverlay(page: page, pageSize: pageRect.size),
         ],
       ),
     );
@@ -95,6 +99,77 @@ class _PageMovesOverlay extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Diagram-recognition layer: a scan button per page; after scanning,
+/// recognized diagrams get a tappable chip that anchors the board to the
+/// printed position.
+class _DiagramAnchorsOverlay extends ConsumerWidget {
+  const _DiagramAnchorsOverlay({required this.page, required this.pageSize});
+
+  final PdfPage page;
+  final Size pageSize;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(diagramScansProvider);
+    final scans = ref.read(diagramScansProvider.notifier);
+    final results = scans.resultsFor(page);
+    final scanning = scans.isScanning(page);
+
+    // Raster pixels (200 dpi) → page-widget coordinates.
+    final toWidget = pageSize.width / (page.width * 200 / 72);
+
+    return Stack(
+      children: [
+        Positioned(
+          top: 4,
+          right: 4,
+          child: scanning
+              ? const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : results == null
+                  ? IconButton.filledTonal(
+                      tooltip: 'Scan page for diagrams',
+                      iconSize: 18,
+                      icon: const Icon(Icons.center_focus_strong),
+                      onPressed: () => scans.scan(page),
+                    )
+                  : const SizedBox.shrink(),
+        ),
+        if (results != null)
+          for (final r in results)
+            Positioned(
+              left: r.left * toWidget,
+              top: r.top * toWidget - 14,
+              child: ActionChip(
+                visualDensity: VisualDensity.compact,
+                avatar: const Icon(Icons.push_pin, size: 14),
+                label: const Text('Set board'),
+                onPressed: () {
+                  try {
+                    final position =
+                        Chess.fromSetup(Setup.parseFen(r.fen));
+                    ref
+                        .read(gameSessionProvider.notifier)
+                        .setPosition(position);
+                  } on Exception {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content:
+                            Text('Could not read this diagram reliably')));
+                  }
+                },
+              ),
+            ),
+      ],
     );
   }
 }
