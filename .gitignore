@@ -5,3 +5,9 @@
 # Large engine binaries — fetched by tool/fetch_stockfish.ps1
 chess_reader/assets/engines/*.exe
 chess_reader/assets/engines/*.nnue
+
+# Vision model training: Python venv and checkpoints (the exported .onnx
+# IS committed — assets/models/square_classifier.onnx).
+chess_reader/tool/vision_train/.venv/
+chess_reader/tool/vision_train/__pycache__/
+*.pth

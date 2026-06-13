@@ -2,65 +2,65 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import '../domain/board_locator.dart';
-import '../domain/square_classifier.dart';
-import 'vision_service.dart';
+import '../domain/board_slicer.dart';
 
-/// Sendable scan input: raw page pixels plus the template PNGs (the isolate
-/// cannot touch rootBundle).
-class ScanRequest {
-  const ScanRequest({
+/// Sendable scan input: raw page pixels (BGRA from pdfrx).
+class ExtractRequest {
+  const ExtractRequest({
     required this.bgra,
     required this.width,
     required this.height,
-    required this.templatePngs,
   });
 
   final Uint8List bgra;
   final int width;
   final int height;
-  final Map<String, Uint8List> templatePngs;
 }
 
-/// Sendable scan output, page-pixel coordinates.
-class ScanResult {
-  const ScanResult({
+/// One located board with its 64 preprocessed cells (row-major, each
+/// [kCellSize]² floats) ready for the model. Sendable across isolates.
+class ExtractedBoard {
+  const ExtractedBoard({
     required this.left,
     required this.top,
     required this.size,
-    required this.fen,
+    required this.cells,
   });
 
   final int left;
   final int top;
   final int size;
-  final String fen;
+  final Float32List cells;
 }
 
-Future<List<ScanResult>> _scan(ScanRequest request) async {
+List<ExtractedBoard> _extract(ExtractRequest request) {
   final page = img.Image.fromBytes(
     width: request.width,
     height: request.height,
     bytes: request.bgra.buffer,
     order: img.ChannelOrder.bgra,
   );
-  final service = VisionService(
-    locator: const ConnectedComponentBoardLocator(),
-    classifier: TemplateSquareClassifier(
-      (id) async => request.templatePngs[id]!,
-    ),
-  );
-  final anchors = await service.scanPage(page);
-  return [
-    for (final a in anchors)
-      ScanResult(
-        left: a.board.left,
-        top: a.board.top,
-        size: a.board.size,
-        fen: a.fen,
-      ),
-  ];
+  const locator = ConnectedComponentBoardLocator();
+  const cellLen = kCellSize * kCellSize;
+
+  final boards = <ExtractedBoard>[];
+  for (final board in locator.locate(page)) {
+    final cells = sliceBoardCells(page, board);
+    final packed = Float32List(64 * cellLen);
+    for (var i = 0; i < 64; i++) {
+      packed.setRange(i * cellLen, (i + 1) * cellLen, preprocessCell(cells[i]));
+    }
+    boards.add(ExtractedBoard(
+      left: board.left,
+      top: board.top,
+      size: board.size,
+      cells: packed,
+    ));
+  }
+  return boards;
 }
 
-/// Runs the diagram scan off the UI thread.
-Future<List<ScanResult>> scanPageInIsolate(ScanRequest request) =>
-    compute(_scan, request);
+/// Locates diagrams and preprocesses their cells off the UI thread. The
+/// returned tensors are classified by the ONNX model on the main isolate.
+Future<List<ExtractedBoard>> extractBoardsInIsolate(ExtractRequest request) =>
+    compute(_extract, request);
