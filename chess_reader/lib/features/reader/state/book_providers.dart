@@ -1,6 +1,7 @@
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/persistence/library_store.dart';
 import '../../../core/state/game_session.dart';
 import '../data/page_moves_service.dart';
 import '../domain/move_resolver.dart';
@@ -14,7 +15,10 @@ class OpenedBook extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void open(String path) => state = path;
+  void open(String path) {
+    ref.read(libraryStoreProvider.notifier).recordOpened(path);
+    state = path;
+  }
 
   void close() => state = null;
 }

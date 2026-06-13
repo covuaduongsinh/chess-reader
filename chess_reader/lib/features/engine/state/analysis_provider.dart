@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/settings/app_settings.dart';
 import '../../../core/state/game_session.dart';
 import '../data/engine_factory.dart';
 import '../domain/uci_engine.dart';
@@ -125,7 +126,8 @@ class AnalysisNotifier extends Notifier<AnalysisState> {
     final engine = createEngine();
     await engine.start();
     _subscription = engine.lines.listen(_onLine);
-    engine.send('setoption name Threads value 4');
+    final threads = ref.read(settingsProvider).engineThreads;
+    engine.send('setoption name Threads value $threads');
     engine.send('setoption name Hash value 128');
     _engine = engine;
     state = state.copyWith(running: true);
@@ -156,8 +158,9 @@ class AnalysisNotifier extends Notifier<AnalysisState> {
     final engine = _engine!;
     _searchingFen = fen;
     state = state.copyWith(eval: null, fen: fen);
+    final depth = ref.read(settingsProvider).engineDepth;
     engine.send('position fen $fen');
-    engine.send('go depth 30');
+    engine.send('go depth $depth');
   }
 
   void _onLine(String line) {

@@ -49,6 +49,8 @@ dependencies:
   xml: ^7.0.1
   file_selector: ^1.1.0
   path: ^1.9.1
+  shared_preferences: ^2.5.5
+  scrollable_positioned_list: ^0.3.8
 
 dev_dependencies:
   flutter_test:

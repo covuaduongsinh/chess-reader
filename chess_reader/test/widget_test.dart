@@ -1,9 +1,12 @@
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chess_reader/app.dart';
+import 'package:chess_reader/core/settings/app_settings.dart';
 import 'package:chess_reader/core/state/game_session.dart';
 
 void main() {
@@ -51,7 +54,17 @@ void main() {
 
   testWidgets('app renders an interactive board that follows the session',
       (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: ChessReaderApp()));
+    // Wide surface so the side-by-side layout (board always visible) is used.
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      child: const ChessReaderApp(),
+    ));
     await tester.pump();
 
     expect(find.byType(Chessboard), findsOneWidget);

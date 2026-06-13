@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/settings/app_settings.dart';
 import '../../core/state/game_session.dart';
 import '../engine/presentation/engine_panel.dart';
 import 'external_links.dart';
@@ -26,11 +27,6 @@ class BoardPanel extends ConsumerStatefulWidget {
 class _BoardPanelState extends ConsumerState<BoardPanel> {
   late final ChessboardController _controller;
   Side _orientation = Side.white;
-
-  static const _settings = ChessboardSettings(
-    pieceAssets: PieceSet.meridaAssets,
-    enableCoordinates: true,
-  );
 
   @override
   void initState() {
@@ -64,6 +60,12 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
       _controller.updatePosition(_gameDataFor(next), resetPremove: true);
     });
     final session = ref.watch(gameSessionProvider);
+    final settings = ref.watch(settingsProvider);
+    final boardSettings = ChessboardSettings(
+      pieceAssets: settings.pieceSet.assets,
+      colorScheme: settings.boardColors,
+      enableCoordinates: true,
+    );
 
     return Column(
       children: [
@@ -75,7 +77,7 @@ class _BoardPanelState extends ConsumerState<BoardPanel> {
               builder: (context, constraints) => Chessboard(
                 controller: _controller,
                 size: min(constraints.maxWidth, constraints.maxHeight),
-                settings: _settings,
+                settings: boardSettings,
                 orientation: _orientation,
                 onMove: (move, {viaDragAndDrop}) =>
                     ref.read(gameSessionProvider.notifier).playMove(move),

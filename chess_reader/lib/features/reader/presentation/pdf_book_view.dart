@@ -3,22 +3,52 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../../../core/persistence/library_store.dart';
 import '../../../core/state/game_session.dart';
 import '../../vision/state/diagram_provider.dart';
 import '../data/page_moves_service.dart';
 import '../state/book_providers.dart';
+import '../state/reader_nav.dart';
 
-/// PDF viewer with clickable chess moves overlaid on each page.
-class PdfBookView extends ConsumerWidget {
+/// PDF viewer with clickable chess moves overlaid on each page. Attaches its
+/// controller to [pdfControllerProvider], resumes at the last-read page, and
+/// records page changes for resume + bookmark labelling.
+class PdfBookView extends ConsumerStatefulWidget {
   const PdfBookView({super.key, required this.path});
 
   final String path;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PdfBookView> createState() => _PdfBookViewState();
+}
+
+class _PdfBookViewState extends ConsumerState<PdfBookView> {
+  final _controller = PdfViewerController();
+
+  @override
+  void dispose() {
+    ref.read(pdfControllerProvider.notifier).detach();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final resumePage =
+        ref.read(libraryStoreProvider.notifier).lastPageFor(widget.path) ?? 1;
     return PdfViewer.file(
-      path,
+      widget.path,
+      controller: _controller,
+      initialPageNumber: resumePage,
       params: PdfViewerParams(
+        onViewerReady: (document, controller) {
+          ref.read(pdfControllerProvider.notifier).attach(_controller);
+        },
+        onPageChanged: (pageNumber) {
+          if (pageNumber == null) return;
+          ref.read(currentPageProvider.notifier).set(pageNumber);
+          ref.read(libraryStoreProvider.notifier)
+              .recordPage(widget.path, pageNumber);
+        },
         pageOverlaysBuilder: (context, pageRect, page) => [
           _PageMovesOverlay(page: page, pageSize: pageRect.size),
           _DiagramAnchorsOverlay(page: page, pageSize: pageRect.size),
