@@ -11,13 +11,17 @@ The Flutter app lives in [`chess_reader/`](chess_reader/).
 ## Download
 
 **Windows:** download the installer from the latest release —
-[**chess_reader-setup-1.0.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.0.0/chess_reader-setup-1.0.0.exe)
+[**chess_reader-setup-1.1.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.1.0/chess_reader-setup-1.1.0.exe)
 ([all releases](https://github.com/alpinist-GH/chess-reader/releases/latest)).
 
 It's a per‑user install (no administrator rights needed). The installer is
 unsigned, so Windows SmartScreen may warn — choose **More info → Run anyway**.
 The Stockfish engine and the diagram‑recognition model are bundled; everything
 runs offline.
+
+**macOS:** build from source on a Mac (Flutter + Xcode) and package a `.dmg`
+with the bundled helper script — see [Building](#building). Requires macOS 14+
+and a Mac with a Metal‑capable GPU.
 
 Other platforms: build from source (see [Building](#building)).
 
@@ -83,6 +87,20 @@ flutter build windows --release
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" windows\installer\chess_reader.iss
 # → chess_reader/dist/chess_reader-setup-<version>.exe (per‑user, no admin needed)
 ```
+
+### macOS .dmg
+
+Build and package on a Mac (Flutter + Xcode required; cannot be produced on
+Windows):
+
+```bash
+cd chess_reader
+tool/build_macos.sh
+# → chess_reader/dist/chess_reader-<version>-macos.dmg
+```
+
+The `.app`/`.dmg` is unsigned (no paid Apple Developer account needed); on first
+launch right‑click the app → **Open** to bypass Gatekeeper.
 
 ## License
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:chessground/chessground.dart';
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -160,9 +162,7 @@ class ChapterHtml extends ConsumerWidget {
             tagsToExtend: const {'chessdiagram'},
             builder: (ctx) {
               final fen = ctx.attributes['fen'] ?? '';
-              final src =
-                  ctx.element?.querySelector('img')?.attributes['src'] ?? '';
-              return _DiagramTile(fen: fen, src: src);
+              return _DiagramTile(fen: fen);
             },
           ),
           TagExtension(
@@ -181,18 +181,22 @@ class ChapterHtml extends ConsumerWidget {
   }
 }
 
-/// A detected diagram: the board crop, its FEN, and a tap target that loads
-/// the position onto the side board.
+/// A detected diagram: a chessboard rendered from its FEN, the FEN caption, and
+/// a tap target that loads the position onto the side board.
 class _DiagramTile extends ConsumerWidget {
-  const _DiagramTile({required this.fen, required this.src});
+  const _DiagramTile({required this.fen});
 
   final String fen;
-  final String src;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bytes = _decodeDataImage(src);
     final theme = Theme.of(context);
+    final settings = ref.watch(settingsProvider);
+    final boardSettings = StaticChessboardSettings(
+      pieceAssets: settings.pieceSet.assets,
+      colorScheme: settings.boardColors,
+      enableCoordinates: true,
+    );
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
@@ -211,7 +215,14 @@ class _DiagramTile extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (bytes != null) Image.memory(bytes),
+                LayoutBuilder(
+                  builder: (ctx, c) => StaticChessboard(
+                    size: c.maxWidth,
+                    orientation: Side.white,
+                    fen: fen,
+                    settings: boardSettings,
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.all(8),
                   child: Row(
