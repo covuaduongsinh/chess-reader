@@ -12,14 +12,18 @@ The augmentations that bridge the domain gap to print:
 - random binary threshold (line-art diagrams)
 - random contrast/brightness (ink density, paper tone)
 - grid lines at cell edges (the board grid bleeds into cells)
+- annotation marks (arrows / highlight rings) drawn over the cell, with the
+  label kept as the true underlying content so the model learns to see through
+  them instead of reading a phantom piece
 """
 
+import math
 import os
 import random
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 import torch
-from PIL import Image, ImageFilter
 from torch.utils.data import Dataset
 
 from model import CELL, CLASSES
@@ -147,6 +151,13 @@ class SquareDataset(Dataset):
             oy = rng.randint(0, work - size)
             cell.alpha_composite(piece_r, (ox, oy))
 
+        # Annotation marks (arrows / highlight rings) over whatever is in the
+        # cell. The label is left unchanged, so the model learns these are NOT
+        # pieces: an arrow on an empty square stays empty; an arrow over a piece
+        # keeps that piece. Biased higher on empties — the failure mode we fix.
+        if rng.random() < (0.35 if not label else 0.2):
+            cell = _add_annotation(cell, work, rng)
+
         img = cell.convert("L")
 
         # Grid lines at random edges.
@@ -195,6 +206,60 @@ class SquareDataset(Dataset):
         x = torch.from_numpy(x).float().unsqueeze(0)  # (1, CELL, CELL)
         y = CLASSES.index(label)
         return x, y
+
+
+def _edge_point(work, rng):
+    """A random point on the cell border (where a multi-square arrow enters)."""
+    side = rng.randint(0, 3)
+    t = rng.uniform(0, work - 1)
+    if side == 0:
+        return (t, 0.0)
+    if side == 1:
+        return (t, work - 1.0)
+    if side == 2:
+        return (0.0, t)
+    return (work - 1.0, t)
+
+
+def _add_annotation(cell, work, rng):
+    """Draw a monochrome annotation mark over an RGBA [cell].
+
+    Models what a single 1/8-of-a-board cell actually sees of a hand-drawn
+    overlay: usually a slice of an arrow shaft crossing it (the arrow spans
+    several squares), sometimes an arrowhead, sometimes a square-highlight ring.
+    Returns a new composited RGBA image; the caller keeps the original label.
+    """
+    overlay = Image.new("RGBA", (work, work), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    ink = rng.randint(30, 130)            # black through mid-gray
+    alpha = rng.randint(120, 230)         # some marks are translucent
+    color = (ink, ink, ink, alpha)
+    wdt = rng.randint(2, 4)
+
+    if rng.random() < 0.2:
+        # Square-highlight ring near the border.
+        m = rng.randint(1, 4)
+        draw.ellipse([m, m, work - 1 - m, work - 1 - m], outline=color, width=wdt)
+        return Image.alpha_composite(cell, overlay)
+
+    # Arrow shaft fragment: a segment from one border point to another.
+    p0 = _edge_point(work, rng)
+    p1 = _edge_point(work, rng)
+    draw.line([p0, p1], fill=color, width=wdt)
+
+    # Arrowhead at the exit end on some cells (the arrow tip lands here).
+    if rng.random() < 0.4:
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        norm = math.hypot(dx, dy) or 1.0
+        dx, dy = dx / norm, dy / norm
+        bl = rng.uniform(6, 12)
+        for ang in (math.radians(150), math.radians(-150)):
+            ca, sa = math.cos(ang), math.sin(ang)
+            bx = p1[0] + bl * (dx * ca - dy * sa)
+            by = p1[1] + bl * (dx * sa + dy * ca)
+            draw.line([p1, (bx, by)], fill=color, width=wdt)
+
+    return Image.alpha_composite(cell, overlay)
 
 
 def _add_grid(img, rng):
