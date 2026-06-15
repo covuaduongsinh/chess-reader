@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../../../core/async/semaphore.dart';
 import '../../vision/data/diagram_recognizer.dart';
 import 'epub_book.dart';
 
@@ -188,8 +189,18 @@ Future<BookConversion> loadOrConvert(
   return conversion;
 }
 
+/// How many pages are recognized concurrently. The per-page locate step runs
+/// in its own isolate (`compute`), so several pages overlap across CPU cores;
+/// rendering stays sequential (single PdfDocument) and ONNX inference is
+/// serialized inside the recognizer. Cuts a big book's first open several-fold.
+const int _conversionConcurrency = 4;
+
 /// PDF conversion: render each page (200 dpi), recognize diagrams, extract the
 /// page text, and compute each diagram's insertion offset into that text.
+///
+/// Rendering is sequential (the page loop), but recognition of up to
+/// [_conversionConcurrency] pages runs at once; results are placed by index so
+/// the output order is unaffected.
 Future<BookConversion> convertPdf(
   String path,
   DiagramRecognizer recognizer, {
@@ -198,51 +209,68 @@ Future<BookConversion> convertPdf(
   const scale = 200 / 72; // PDF points (72 dpi) → ~200 dpi raster.
   final doc = await PdfDocument.openFile(path);
   try {
-    final pages = <ConvertedPage>[];
     final total = doc.pages.length;
+    final results = List<ConvertedPage?>.filled(total, null);
+    final sem = Semaphore(_conversionConcurrency);
+    final inFlight = <Future<void>>[];
+    var completed = 0;
+
     for (var i = 0; i < total; i++) {
+      // Throttle BEFORE rendering so at most N page images are in memory.
+      await sem.acquire();
       final page = doc.pages[i];
       final structured = await page.loadStructuredText();
       final text = structured.fullText;
-
       final image = await page.render(
         fullWidth: page.width * scale,
         fullHeight: page.height * scale,
       );
-      final diagrams = <ConvertedDiagram>[];
-      if (image != null) {
-        final recognized = await recognizer.recognizePage(
-          bgra: image.pixels,
-          width: image.width,
-          height: image.height,
-        );
-        image.dispose();
-        for (final r in recognized) {
-          diagrams.add(ConvertedDiagram(
-            fen: r.fen,
-            cropPngBase64: base64Encode(r.cropPng),
-            left: r.left,
-            top: r.top,
-            size: r.size,
-            anchor: _insertOffsetForDiagram(
-              charRects: structured.charRects,
-              pageHeight: page.height,
-              scale: scale,
-              diagramTopPx: r.top,
-              textLength: text.length,
-            ),
-          ));
+
+      final index = i;
+      final pageNumber = page.pageNumber;
+      final pageHeight = page.height;
+      final charRects = structured.charRects;
+
+      Future<void> recognize() async {
+        final diagrams = <ConvertedDiagram>[];
+        if (image != null) {
+          final recognized = await recognizer.recognizePage(
+            bgra: image.pixels,
+            width: image.width,
+            height: image.height,
+          );
+          image.dispose();
+          for (final r in recognized) {
+            diagrams.add(ConvertedDiagram(
+              fen: r.fen,
+              cropPngBase64: base64Encode(r.cropPng),
+              left: r.left,
+              top: r.top,
+              size: r.size,
+              anchor: _insertOffsetForDiagram(
+                charRects: charRects,
+                pageHeight: pageHeight,
+                scale: scale,
+                diagramTopPx: r.top,
+                textLength: text.length,
+              ),
+            ));
+          }
         }
+        results[index] =
+            ConvertedPage(index: pageNumber, text: text, diagrams: diagrams);
+        completed++;
+        onProgress?.call(completed / total);
       }
-      pages.add(ConvertedPage(
-          index: page.pageNumber, text: text, diagrams: diagrams));
-      onProgress?.call((i + 1) / total);
+
+      inFlight.add(recognize().whenComplete(sem.release));
     }
+    await Future.wait(inFlight);
     return BookConversion(
       title: p.basenameWithoutExtension(path),
       format: 'pdf',
       sourcePath: path,
-      pages: pages,
+      pages: [for (final pg in results) pg!],
     );
   } finally {
     doc.dispose();
@@ -251,41 +279,56 @@ Future<BookConversion> convertPdf(
 
 /// EPUB conversion: recognize boards in each chapter's images. Each diagram's
 /// [ConvertedDiagram.anchor] is the `<img>` occurrence index within its
-/// chapter, so the HTML builder can wrap exactly that image.
+/// chapter, so the HTML builder can wrap exactly that image. Chapters are
+/// recognized up to [_conversionConcurrency] at a time; results go by index.
 Future<BookConversion> convertEpub(
   String path,
   DiagramRecognizer recognizer, {
   void Function(double progress)? onProgress,
 }) async {
   final chapterImages = await epubChapterImages(path);
-  final pages = <ConvertedPage>[];
   final total = chapterImages.length;
+  final results = List<ConvertedPage?>.filled(total, null);
+  final sem = Semaphore(_conversionConcurrency);
+  final inFlight = <Future<void>>[];
+  var completed = 0;
+
   for (var c = 0; c < total; c++) {
+    await sem.acquire();
+    final index = c;
     final images = chapterImages[c];
-    final diagrams = <ConvertedDiagram>[];
-    for (var j = 0; j < images.length; j++) {
-      final bytes = images[j];
-      if (bytes == null) continue;
-      final recognized = await recognizer.recognizeEncoded(bytes);
-      if (recognized.isEmpty) continue;
-      final r = recognized.first; // largest board in the image
-      diagrams.add(ConvertedDiagram(
-        fen: r.fen,
-        cropPngBase64: base64Encode(r.cropPng),
-        left: r.left,
-        top: r.top,
-        size: r.size,
-        anchor: j,
-      ));
+
+    Future<void> recognize() async {
+      final diagrams = <ConvertedDiagram>[];
+      for (var j = 0; j < images.length; j++) {
+        final bytes = images[j];
+        if (bytes == null) continue;
+        final recognized = await recognizer.recognizeEncoded(bytes);
+        if (recognized.isEmpty) continue;
+        final r = recognized.first; // largest board in the image
+        diagrams.add(ConvertedDiagram(
+          fen: r.fen,
+          cropPngBase64: base64Encode(r.cropPng),
+          left: r.left,
+          top: r.top,
+          size: r.size,
+          anchor: j,
+        ));
+      }
+      results[index] = ConvertedPage(index: index, diagrams: diagrams);
+      completed++;
+      onProgress?.call(total == 0 ? 1 : completed / total);
     }
-    pages.add(ConvertedPage(index: c, diagrams: diagrams));
-    onProgress?.call(total == 0 ? 1 : (c + 1) / total);
+
+    inFlight.add(recognize().whenComplete(sem.release));
   }
+  await Future.wait(inFlight);
+  if (total == 0) onProgress?.call(1);
   return BookConversion(
     title: p.basenameWithoutExtension(path),
     format: 'epub',
     sourcePath: path,
-    pages: pages,
+    pages: [for (final pg in results) pg!],
   );
 }
 

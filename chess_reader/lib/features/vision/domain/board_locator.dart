@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:image/image.dart' as img;
 
 /// A candidate chess diagram found on a page image, in pixel coordinates.
@@ -40,9 +42,16 @@ class ConnectedComponentBoardLocator implements BoardLocator {
 
   @override
   List<LocatedBoard> locate(img.Image page) {
+    // Detection runs at full resolution: printed board frames are only 1–2px
+    // wide, so downscaling blends them into the background and the board stops
+    // being one connected component (real diagrams get dropped). Speed instead
+    // comes from a packed luminance buffer below — getPixel() per pixel is the
+    // slow path on multi-megapixel pages.
     final gray = img.grayscale(img.Image.from(page));
     final w = gray.width, h = gray.height;
-    final threshold = _otsu(gray);
+    // One byte per pixel (red channel == luminance after grayscale).
+    final lum = gray.getBytes(order: img.ChannelOrder.red);
+    final threshold = _otsu(lum);
 
     // Two-pass connected-component labeling over dark pixels with union-find.
     final labels = List<int>.filled(w * h, 0);
@@ -67,19 +76,20 @@ class ConnectedComponentBoardLocator implements BoardLocator {
 
     var nextLabel = 1;
     for (var y = 0; y < h; y++) {
+      final row = y * w;
       for (var x = 0; x < w; x++) {
-        if (gray.getPixel(x, y).r >= threshold) continue;
-        final left = x > 0 ? labels[y * w + x - 1] : 0;
-        final up = y > 0 ? labels[(y - 1) * w + x] : 0;
+        if (lum[row + x] >= threshold) continue;
+        final left = x > 0 ? labels[row + x - 1] : 0;
+        final up = y > 0 ? labels[row - w + x] : 0;
         if (left == 0 && up == 0) {
-          labels[y * w + x] = nextLabel;
+          labels[row + x] = nextLabel;
           parent.add(nextLabel);
           nextLabel++;
         } else if (left != 0 && up != 0) {
-          labels[y * w + x] = left;
+          labels[row + x] = left;
           union(left, up);
         } else {
-          labels[y * w + x] = left != 0 ? left : up;
+          labels[row + x] = left != 0 ? left : up;
         }
       }
     }
@@ -88,8 +98,9 @@ class ConnectedComponentBoardLocator implements BoardLocator {
     final minX = <int, int>{}, minY = <int, int>{};
     final maxX = <int, int>{}, maxY = <int, int>{};
     for (var y = 0; y < h; y++) {
+      final row = y * w;
       for (var x = 0; x < w; x++) {
-        final raw = labels[y * w + x];
+        final raw = labels[row + x];
         if (raw == 0) continue;
         final root = find(raw);
         minX.update(root, (v) => v < x ? v : x, ifAbsent: () => x);
@@ -124,13 +135,13 @@ class ConnectedComponentBoardLocator implements BoardLocator {
     return result;
   }
 
-  /// Otsu's threshold over the grayscale histogram.
-  int _otsu(img.Image gray) {
+  /// Otsu's threshold over the luminance histogram.
+  int _otsu(Uint8List lum) {
     final hist = List<int>.filled(256, 0);
-    for (final p in gray) {
-      hist[p.r.toInt()]++;
+    for (var i = 0; i < lum.length; i++) {
+      hist[lum[i]]++;
     }
-    final total = gray.width * gray.height;
+    final total = lum.length;
     var sum = 0.0;
     for (var i = 0; i < 256; i++) {
       sum += i * hist[i];

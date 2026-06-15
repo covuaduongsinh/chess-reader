@@ -32,13 +32,29 @@ class RecognizedDiagram {
 /// [dispose] it when done.
 class DiagramRecognizer {
   OnnxSquareClassifier? _classifier;
-  bool _loaded = false;
 
-  Future<OnnxSquareClassifier?> _ensureClassifier() async {
-    if (_loaded) return _classifier;
-    _classifier = await OnnxSquareClassifier.tryLoad();
-    _loaded = true;
-    return _classifier;
+  /// Memoized load so concurrent pages (the conversion runs several at once)
+  /// share a single classifier instead of each loading the model.
+  Future<OnnxSquareClassifier?>? _loadFuture;
+
+  /// Serializes ONNX inference: locating runs in parallel isolates, but the
+  /// single ORT session must not have overlapping `run` calls.
+  Future<void> _classifyGate = Future.value();
+
+  Future<OnnxSquareClassifier?> _ensureClassifier() {
+    return _loadFuture ??= () async {
+      _classifier = await OnnxSquareClassifier.tryLoad();
+      return _classifier;
+    }();
+  }
+
+  /// Runs [action] with exclusive access to the ORT session.
+  Future<T> _locked<T>(Future<T> Function() action) {
+    final result = _classifyGate.then((_) => action());
+    // Keep the gate alive regardless of success/failure; swallow here so a
+    // failed call doesn't poison the chain (the caller still sees the error).
+    _classifyGate = result.then((_) {}, onError: (_) {});
+    return result;
   }
 
   /// Recognizes diagrams in a rendered page (BGRA pixels, e.g. from pdfrx).
@@ -66,7 +82,7 @@ class DiagramRecognizer {
     if (classifier == null) return const [];
     final out = <RecognizedDiagram>[];
     for (final b in boards) {
-      final result = await classifier.classifyBoard(b.cells);
+      final result = await _locked(() => classifier.classifyBoard(b.cells));
       // Drop empty grids, photos/figures and other non-board regions the
       // locator picked up: only emit confidently-read, populated positions.
       if (!isPlausibleDiagram(result.labels,
@@ -85,7 +101,10 @@ class DiagramRecognizer {
   }
 
   Future<void> dispose() async {
+    // Wait for any in-flight load so we dispose the real session, not null.
+    await _loadFuture;
     await _classifier?.dispose();
     _classifier = null;
+    _loadFuture = null;
   }
 }
