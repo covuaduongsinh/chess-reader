@@ -197,6 +197,15 @@ class _DiagramTile extends ConsumerWidget {
       colorScheme: settings.boardColors,
       enableCoordinates: true,
     );
+
+    void load() {
+      final ok = ref.read(gameSessionProvider.notifier).loadFen(fen);
+      if (!ok) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not read this diagram reliably')));
+      }
+    }
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
@@ -207,16 +216,11 @@ class _DiagramTile extends ConsumerWidget {
           // flutter_html's widget span an InkWell doesn't reliably win the tap
           // over the board area, so the diagram looked dead in the reading view
           // while it worked in PDF mode. This mirrors the PDF overlay's handler.
+          // The explicit button below is the reliable affordance — a bare tap on
+          // the board can still lose the gesture arena to the surrounding scroll.
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              final ok =
-                  ref.read(gameSessionProvider.notifier).loadFen(fen);
-              if (!ok) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Could not read this diagram reliably')));
-              }
-            },
+            onTap: load,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -232,18 +236,24 @@ class _DiagramTile extends ConsumerWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
                     children: [
-                      Icon(Icons.touch_app,
-                          size: 16, color: theme.colorScheme.primary),
-                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           fen,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      FilledButton.tonalIcon(
+                        onPressed: load,
+                        icon: const Icon(Icons.login, size: 18),
+                        label: const Text('Load'),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
                         ),
                       ),
                     ],

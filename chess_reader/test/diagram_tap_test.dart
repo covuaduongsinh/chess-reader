@@ -70,6 +70,61 @@ void main() {
     );
   });
 
+  testWidgets('the diagram Load button loads its FEN onto the board',
+      (tester) async {
+    // The button is the reliable affordance: a bare board tap can lose the
+    // gesture arena to the surrounding scroll on a real device, but a button
+    // press always reaches its handler.
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    const fen = '4k3/8/8/3PP3/3PP3/8/8/4K3 w - - 0 1';
+    const placement = '4k3/8/8/3PP3/3PP3/8/8/4K3';
+    final chapter = EpubChapter(
+      title: 'p1',
+      html: '<div><p>before</p>'
+          '<chessdiagram fen="$fen">board</chessdiagram>'
+          '<p>after</p></div>',
+      moves: const [],
+    );
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      child: MaterialApp(
+        home: Scaffold(
+          body: HtmlChapterList(
+            path: '/tmp/book.pdf',
+            chapters: [chapter],
+            sourceKeyPrefix: 'pg',
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final loadButton = find.widgetWithText(FilledButton, 'Load');
+    expect(loadButton, findsOneWidget, reason: 'a Load button should render');
+
+    final container = ProviderScope.containerOf(
+        tester.element(loadButton),
+        listen: false);
+    expect(container.read(gameSessionProvider).fen.startsWith(placement),
+        isFalse);
+
+    await tester.tap(loadButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(gameSessionProvider).fen.startsWith(placement),
+      isTrue,
+      reason: 'pressing Load should put the position on the board',
+    );
+  });
+
   testWidgets('tapping a move in the reading view updates the board',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 1600);

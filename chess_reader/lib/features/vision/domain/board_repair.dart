@@ -33,12 +33,27 @@ final int _blackKing = _labelIndex['k']!;
 final int _whitePawn = _labelIndex['P']!;
 final int _blackPawn = _labelIndex['p']!;
 
+/// The non-king, non-pawn pieces ("officers") of each side and the count each
+/// side starts with. A side can only exceed these by promoting its own pawns,
+/// and every promotion costs one pawn — so the surplus officers a reading may
+/// hold is bounded by that side's missing pawns (8 − pawns on the board). A
+/// board with three rooks and all eight pawns is therefore materially
+/// impossible, however the per-square model labelled it.
+const _whiteOfficers = ['Q', 'R', 'B', 'N'];
+const _blackOfficers = ['q', 'r', 'b', 'n'];
+const _officerStdMax = {
+  'Q': 1, 'R': 2, 'B': 2, 'N': 2, //
+  'q': 1, 'r': 2, 'b': 2, 'n': 2, //
+};
+
 /// A class a misread square may be demoted to: never a king or a pawn. Because
 /// every demotion lands on a king/pawn-free class (Q/R/B/N or empty), repair can
 /// never *create* a king or pawn — so the king, back-rank and pawn-count rules
-/// can't feed one another, and the whole thing converges in a single pass with
-/// no oscillation. (A square the model reads most-confidently as a king or pawn
-/// is never genuinely the *other*, so excluding both costs nothing in practice.)
+/// can't feed one another. (A square the model reads most-confidently as a king
+/// or pawn is never genuinely the *other*, so excluding both costs nothing in
+/// practice.) The material cap adds its own no-new-surplus guard (see
+/// [_capPromotedMaterial]), so the fixed-point loop still settles in a pass or
+/// two.
 bool _demotable(int c) =>
     c != _whiteKing &&
     c != _blackKing &&
@@ -56,7 +71,10 @@ bool _demotable(int c) =>
 /// Constraints enforced, each by demoting the lowest-confidence offenders:
 ///  * at most one white king and one black king;
 ///  * no pawn on rank 1 (row 7) or rank 8 (row 0);
-///  * at most eight white pawns and eight black pawns.
+///  * at most eight white pawns and eight black pawns;
+///  * no more surplus officers (queens/rooks/bishops/knights beyond the
+///    starting count) per side than that side's missing pawns could have
+///    promoted into — see [_officerStdMax].
 ///
 /// Keys off the post-emptiness-gate [labels], not `argmax(classProbs)`: a cell
 /// the classifier forced to empty carries `''` here even though its prob row may
@@ -79,7 +97,11 @@ List<String> repairToLegal(List<String> labels, List<Float32List>? classProbs) {
     changed |= _clearBackRankPawns(out, classProbs);
     changed |= _capPawns(out, classProbs, 'P');
     changed |= _capPawns(out, classProbs, 'p');
-  } while (changed && ++iterations < 4);
+    // Pawn counts must be final before the material cap reads them (its budget
+    // is 8 − pawns), so this runs after the pawn passes.
+    changed |= _capPromotedMaterial(out, classProbs, _whiteOfficers, 'P');
+    changed |= _capPromotedMaterial(out, classProbs, _blackOfficers, 'p');
+  } while (changed && ++iterations < 6);
 
   return out;
 }
@@ -123,6 +145,64 @@ bool _capPawns(List<String> out, List<Float32List> probs, String pawn) {
     _demote(out, probs, cells[k], _demotable);
   }
   return true;
+}
+
+/// Demotes surplus officers (queens/rooks/bishops/knights beyond the starting
+/// count) that exceed what [pawn]-promotions could account for. The side may
+/// keep `8 − pawns` promoted officers; any further surplus is materially
+/// impossible, so its lowest-confidence members are demoted lowest-first.
+///
+/// A demotion never lands on a king/pawn, never recreates the same officer, and
+/// never lands on a piece already at its own [_officerStdMax] (which would just
+/// relocate the impossibility) — so no pass can manufacture a new surplus and
+/// the outer fixed-point loop settles quickly.
+bool _capPromotedMaterial(
+  List<String> out,
+  List<Float32List> probs,
+  List<String> ownOfficers,
+  String pawn,
+) {
+  var budget = 8 - _cellsLabelled(out, pawn).length;
+  if (budget < 0) budget = 0;
+
+  // The promotion-only surplus: per type, the lowest-confidence cells beyond
+  // its starting count (the highest-confidence ones are kept).
+  final surplus = <int>[];
+  for (final officer in ownOfficers) {
+    final cells = _cellsLabelled(out, officer);
+    final std = _officerStdMax[officer]!;
+    if (cells.length <= std) continue;
+    _sortByConfidenceAsc(cells, probs, _labelIndex[officer]!);
+    surplus.addAll(cells.take(cells.length - std));
+  }
+  if (surplus.length <= budget) return false;
+
+  // Globally lowest-confidence surplus first, so the least-certain reads go.
+  surplus.sort((a, b) {
+    final c = probs[a][_labelIndex[out[a]]!].compareTo(probs[b][_labelIndex[out[b]]!]);
+    return c != 0 ? c : a.compareTo(b);
+  });
+
+  final demoteCount = surplus.length - budget;
+  for (var k = 0; k < demoteCount; k++) {
+    final cell = surplus[k];
+    final typeIdx = _labelIndex[out[cell]]!;
+    // `_roomy` reads the live [out], which we mutate as we go, so a target that
+    // fills up mid-loop stops being offered.
+    _demote(out, probs, cell,
+        (c) => _demotable(c) && c != typeIdx && _roomy(out, c));
+  }
+  return true;
+}
+
+/// Whether class [c] has room for one more piece without itself exceeding
+/// [_officerStdMax]. Non-officers (only empty reaches here, post-[_demotable])
+/// always have room.
+bool _roomy(List<String> out, int c) {
+  final label = squareLabels[c];
+  final std = _officerStdMax[label];
+  if (std == null) return true;
+  return _cellsLabelled(out, label).length < std;
 }
 
 List<int> _cellsLabelled(List<String> out, String label) {

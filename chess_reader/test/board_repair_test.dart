@@ -147,6 +147,37 @@ void main() {
     expect(out[56], isNot('K'));
   });
 
+  test('a third rook with all eight pawns is materially impossible, so the '
+      'weakest rook is demoted', () {
+    // White has all eight pawns (rank 2) AND three rooks: a1/h1 are real, a8 is
+    // a phantom read inside Black's camp (the "understanding-chess-openings"
+    // failure). With no missing pawns, no promotion could explain a 3rd rook.
+    final labels = _labels('R3k3/8/8/8/8/8/PPPPPPPP/R3K2R');
+    final probs = _probs(
+      labels,
+      conf: {0: 0.55, 56: 0.95, 63: 0.95},
+      nextBest: {0: 'r'},
+    );
+
+    final out = repairToLegal(labels, probs);
+
+    expect(_count(out, 'R'), 2, reason: 'the impossible third rook is demoted');
+    expect(out[0], 'r', reason: 'lowest-confidence rook falls to its next-best');
+    expect(out[56], 'R');
+    expect(out[63], 'R');
+    expect(tryLoadFen(assembleFen(out))!.legal, isTrue);
+  });
+
+  test('a third rook is kept when missing pawns could have promoted into it', () {
+    // Only six white pawns, so two pawns are off the board — a promoted rook is
+    // materially possible. Repair must NOT touch a legal-if-rare reading.
+    final labels = _labels('R3k3/8/8/8/8/8/PPPPPP2/R3K2R');
+    final out = repairToLegal(labels, _probs(labels));
+
+    expect(_count(out, 'R'), 3, reason: 'within the promotion budget');
+    expect(out, labels);
+  });
+
   test('repaired reading becomes engine-analysable end to end', () {
     // A real sparse endgame with one square (a8) misread as a second white king.
     final labels = _labels('4k3/8/8/8/8/8/4P3/3RK3');

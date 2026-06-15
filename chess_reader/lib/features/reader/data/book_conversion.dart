@@ -140,7 +140,9 @@ class BookConversion {
   //     model's misreads (extra kings, 33+ pieces) so real diagrams are not
   //     dropped; only empty/noise regions are rejected. Re-run v3 caches that
   //     wrongly dropped every diagram.
-  static const _version = 4;
+  // v5: board_repair adds the promotion-aware material cap (e.g. a 3rd rook with
+  //     all pawns present is demoted), so cached FENs from v4 must be recomputed.
+  static const _version = 5;
 
   Map<String, dynamic> toJson() => {
         'v': _version,
