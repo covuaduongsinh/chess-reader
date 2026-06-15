@@ -1,0 +1,166 @@
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:chess_reader/core/state/board_loader.dart';
+import 'package:chess_reader/features/vision/domain/board_repair.dart';
+import 'package:chess_reader/features/vision/domain/fen_assembler.dart';
+
+/// Class index order — mirrors `squareLabels` / model.py `CLASSES`.
+const _idx = {
+  'K': 0, 'Q': 1, 'R': 2, 'B': 3, 'N': 4, 'P': 5, //
+  'k': 6, 'q': 7, 'r': 8, 'b': 9, 'n': 10, 'p': 11, //
+  '': 12,
+};
+
+/// Builds 64 labels from a FEN board-placement field (rank 8 → rank 1).
+List<String> _labels(String placement) {
+  final out = <String>[];
+  for (final rank in placement.split('/')) {
+    for (final ch in rank.split('')) {
+      final skip = int.tryParse(ch);
+      if (skip != null) {
+        out.addAll(List.filled(skip, ''));
+      } else {
+        out.add(ch);
+      }
+    }
+  }
+  assert(out.length == 64, 'got ${out.length}');
+  return out;
+}
+
+/// One prob row per cell: [conf] (default 0.95) on the cell's own label, the
+/// rest on [nextBest] (default empty). When the label is empty all mass sits on
+/// empty, matching the classifier's emptiness gate.
+List<Float32List> _probs(
+  List<String> labels, {
+  Map<int, double> conf = const {},
+  Map<int, String> nextBest = const {},
+}) {
+  return List.generate(64, (i) {
+    final row = Float32List(13);
+    final top = conf[i] ?? 0.95;
+    row[_idx[labels[i]]!] = top;
+    row[_idx[nextBest[i] ?? '']!] += 1 - top;
+    return row;
+  });
+}
+
+int _count(List<String> labels, String label) =>
+    labels.where((l) => l == label).length;
+
+void main() {
+  test('three white kings collapse to the most-confident one', () {
+    // White "kings" on c1/c3/e1 (cells 56, 58, 60); only e1 is real.
+    final labels = _labels('4k3/8/8/8/8/8/8/K1K1K3');
+    final probs = _probs(
+      labels,
+      conf: {56: 0.6, 58: 0.7, 60: 0.9},
+      nextBest: {56: 'Q', 58: 'R'},
+    );
+
+    final out = repairToLegal(labels, probs);
+
+    expect(_count(out, 'K'), 1);
+    expect(out[60], 'K', reason: 'highest-confidence king is kept');
+    expect(out[56], 'Q');
+    expect(out[58], 'R');
+    expect(out[4], 'k', reason: 'the lone black king is untouched');
+  });
+
+  test('three black kings collapse to the most-confident one', () {
+    final labels = _labels('k1k1k3/8/8/8/8/8/8/4K3');
+    final probs = _probs(
+      labels,
+      conf: {0: 0.9, 2: 0.7, 4: 0.6},
+      nextBest: {2: 'r', 4: 'q'},
+    );
+
+    final out = repairToLegal(labels, probs);
+
+    expect(_count(out, 'k'), 1);
+    expect(out[0], 'k');
+    expect(out[2], 'r');
+    expect(out[4], 'q');
+  });
+
+  test('pawns on the first and last rank are removed', () {
+    // 'P' on a8 (cell 0) and 'p' on h1 (cell 63) — both impossible.
+    final labels = _labels('P3k3/8/8/8/8/8/8/4K2p');
+    final probs = _probs(labels, nextBest: {63: 'R'});
+
+    final out = repairToLegal(labels, probs);
+
+    expect(out[0], '', reason: 'back-rank pawn falls back to empty');
+    expect(out[63], isNot('p'));
+    expect(out[63], 'R');
+    expect(_count(out, 'P'), 0);
+    expect(_count(out, 'p'), 0);
+  });
+
+  test('a ninth pawn is demoted, keeping the eight most confident', () {
+    // Eight white pawns on rank 6 (cells 16-23) plus a ninth on rank 5 (cell
+    // 24), which reads weakest.
+    final labels = _labels('4k3/8/PPPPPPPP/P7/8/8/8/4K3');
+    final probs = _probs(labels, conf: {24: 0.5});
+
+    final out = repairToLegal(labels, probs);
+
+    expect(_count(out, 'P'), 8);
+    expect(out[24], '', reason: 'the lowest-confidence surplus pawn goes');
+  });
+
+  test('a legal board is returned unchanged', () {
+    for (final placement in [
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR',
+      '4k3/8/8/8/8/8/4P3/3RK3',
+    ]) {
+      final labels = _labels(placement);
+      final out = repairToLegal(labels, _probs(labels));
+      expect(out, labels, reason: placement);
+    }
+  });
+
+  test('missing or malformed classProbs is a no-op', () {
+    final labels = _labels('4k3/8/8/8/8/8/8/K1K1K3'); // illegal: three kings
+    expect(repairToLegal(labels, null), labels);
+    expect(repairToLegal(labels, const <Float32List>[]), labels);
+  });
+
+  test('an extra king never cascades into an illegal extra pawn', () {
+    // White already has its full eight pawns (rank 2, cells 48-55). An extra
+    // king on c1 reads next-best as a pawn — repair must NOT turn it into a 9th
+    // pawn, because demotions skip pawns entirely.
+    final labels = _labels('4k3/8/8/8/8/8/PPPPPPPP/K1K1K3');
+    final probs = _probs(
+      labels,
+      conf: {56: 0.6, 58: 0.7, 60: 0.9},
+      nextBest: {56: 'P', 58: 'P'},
+    );
+
+    final out = repairToLegal(labels, probs);
+
+    expect(_count(out, 'K'), 1);
+    expect(_count(out, 'P'), 8, reason: 'no king became a pawn');
+    expect(out[56], isNot('P'));
+    expect(out[56], isNot('K'));
+  });
+
+  test('repaired reading becomes engine-analysable end to end', () {
+    // A real sparse endgame with one square (a8) misread as a second white king.
+    final labels = _labels('4k3/8/8/8/8/8/4P3/3RK3');
+    labels[0] = 'K';
+    final probs = _probs(labels, conf: {0: 0.6, 60: 0.95});
+
+    // Before repair the FEN has two white kings — not a legal position.
+    expect(tryLoadFen(assembleFen(labels))!.legal, isFalse);
+
+    // After repair it loads as a legal position the engine can analyse.
+    final repaired = repairToLegal(labels, probs);
+    final loaded = tryLoadFen(assembleFen(repaired));
+    expect(loaded, isNotNull);
+    expect(loaded!.legal, isTrue);
+    expect(repaired[0], '', reason: 'the misread second king is gone');
+  });
+}

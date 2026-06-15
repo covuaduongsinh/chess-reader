@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/board_repair.dart';
 import '../domain/board_validator.dart';
 import '../domain/fen_assembler.dart';
 import 'onnx_square_classifier.dart';
@@ -89,11 +90,16 @@ class DiagramRecognizer {
           confidences: result.confidences)) {
         continue;
       }
+      // Gate on the raw labels (repair must not smuggle noise past the gate),
+      // then fix structural illegalities so the FEN is engine-analysable. Repair
+      // also corrects castling inference, since a phantom king on e1/e8 no
+      // longer survives into assembleFen.
+      final repaired = repairToLegal(result.labels, result.classProbs);
       out.add(RecognizedDiagram(
         left: b.left,
         top: b.top,
         size: b.size,
-        fen: assembleFen(result.labels),
+        fen: assembleFen(repaired),
         cropPng: b.cropPng,
       ));
     }

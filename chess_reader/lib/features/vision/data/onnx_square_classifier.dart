@@ -23,10 +23,16 @@ const double _emptyStdDev = 0.08;
 /// top-class probability — used to reject non-board regions read with low
 /// confidence (see `isPlausibleDiagram`).
 class BoardClassification {
-  const BoardClassification(this.labels, this.confidences);
+  const BoardClassification(this.labels, this.confidences, [this.classProbs]);
 
   final List<String> labels;
   final List<double> confidences;
+
+  /// Per-cell softmax over [kModelClasses] (64 rows of [kModelClasses].length,
+  /// same row-major order as [labels]). Null on the template path. Used only by
+  /// legality repair (`repairToLegal`), which redistributes a misread square to
+  /// its next-best class.
+  final List<Float32List>? classProbs;
 }
 
 /// Runs the per-square CNN over a board's 64 cells in a single batched
@@ -76,6 +82,7 @@ class OnnxSquareClassifier {
       }
       final labels = <String>[];
       final confidences = <double>[];
+      final classProbs = <Float32List>[];
       final n = kModelClasses.length;
       for (var cell = 0; cell < 64; cell++) {
         var best = 0;
@@ -87,12 +94,19 @@ class OnnxSquareClassifier {
             best = c;
           }
         }
-        // Softmax probability of the winning class.
+        // Softmax over the cell's logits; reused for both the winning-class
+        // confidence and the full per-class distribution legality repair needs.
         var sumExp = 0.0;
         for (var c = 0; c < n; c++) {
           sumExp += math.exp(flat[cell * n + c].toDouble() - bestVal);
         }
-        final confidence = 1.0 / sumExp;
+        final invSum = 1.0 / sumExp;
+        final confidence = invSum; // exp(bestVal - bestVal) == 1
+        final probs = Float32List(n);
+        for (var c = 0; c < n; c++) {
+          probs[c] = math.exp(flat[cell * n + c].toDouble() - bestVal) * invSum;
+        }
+        classProbs.add(probs);
 
         // Emptiness gate: a flat cell is empty whatever the CNN says.
         final empty =
@@ -100,7 +114,7 @@ class OnnxSquareClassifier {
         labels.add(empty ? '' : kModelClasses[best]);
         confidences.add(confidence);
       }
-      return BoardClassification(labels, confidences);
+      return BoardClassification(labels, confidences, classProbs);
     } finally {
       await input.dispose();
     }
