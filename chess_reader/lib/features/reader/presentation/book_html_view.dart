@@ -203,7 +203,12 @@ class _DiagramTile extends ConsumerWidget {
         child: Card(
           clipBehavior: Clip.antiAlias,
           margin: const EdgeInsets.symmetric(vertical: 8),
-          child: InkWell(
+          // GestureDetector with an opaque hit test (not InkWell): inside
+          // flutter_html's widget span an InkWell doesn't reliably win the tap
+          // over the board area, so the diagram looked dead in the reading view
+          // while it worked in PDF mode. This mirrors the PDF overlay's handler.
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () {
               final ok =
                   ref.read(gameSessionProvider.notifier).loadFen(fen);
@@ -215,12 +220,15 @@ class _DiagramTile extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                LayoutBuilder(
-                  builder: (ctx, c) => StaticChessboard(
-                    size: c.maxWidth,
-                    orientation: Side.white,
-                    fen: fen,
-                    settings: boardSettings,
+                // The static board must not absorb the tap meant for the tile.
+                IgnorePointer(
+                  child: LayoutBuilder(
+                    builder: (ctx, c) => StaticChessboard(
+                      size: c.maxWidth,
+                      orientation: Side.white,
+                      fen: fen,
+                      settings: boardSettings,
+                    ),
                   ),
                 ),
                 Padding(
