@@ -155,7 +155,7 @@ class SquareDataset(Dataset):
         # cell. The label is left unchanged, so the model learns these are NOT
         # pieces: an arrow on an empty square stays empty; an arrow over a piece
         # keeps that piece. Biased higher on empties — the failure mode we fix.
-        if rng.random() < (0.35 if not label else 0.2):
+        if rng.random() < (0.42 if not label else 0.22):
             cell = _add_annotation(cell, work, rng)
 
         img = cell.convert("L")
@@ -225,39 +225,65 @@ def _add_annotation(cell, work, rng):
     """Draw a monochrome annotation mark over an RGBA [cell].
 
     Models what a single 1/8-of-a-board cell actually sees of a hand-drawn
-    overlay: usually a slice of an arrow shaft crossing it (the arrow spans
-    several squares), sometimes an arrowhead, sometimes a square-highlight ring.
-    Returns a new composited RGBA image; the caller keeps the original label.
+    overlay. Crucially, printed move arrows are near-black with a SOLID filled
+    triangular head roughly the size and darkness of a piece — the exact thing
+    the classifier was hallucinating into pieces — so the head is a filled
+    polygon on a thick shaft, not a hairline barb. Also models thin zigzag
+    shafts and square-highlight rings. Returns a new composited RGBA image; the
+    caller keeps the original label.
     """
     overlay = Image.new("RGBA", (work, work), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    ink = rng.randint(30, 130)            # black through mid-gray
-    alpha = rng.randint(120, 230)         # some marks are translucent
+    ink = rng.randint(0, 80)              # arrows are near-black
+    alpha = rng.randint(170, 255)         # solid, occasionally a little soft
     color = (ink, ink, ink, alpha)
-    wdt = rng.randint(2, 4)
+    kind = rng.random()
 
-    if rng.random() < 0.2:
+    if kind < 0.15:
         # Square-highlight ring near the border.
         m = rng.randint(1, 4)
-        draw.ellipse([m, m, work - 1 - m, work - 1 - m], outline=color, width=wdt)
+        draw.ellipse([m, m, work - 1 - m, work - 1 - m],
+                     outline=color, width=rng.randint(2, 4))
         return Image.alpha_composite(cell, overlay)
 
-    # Arrow shaft fragment: a segment from one border point to another.
+    if kind < 0.32:
+        # Bent / zigzag shaft (a routed move arrow doubling back through the
+        # cell — the "^" peak that was misread as a bishop). Thin, two segments,
+        # usually no head.
+        a = _edge_point(work, rng)
+        mid = (rng.uniform(0.2 * work, 0.8 * work),
+               rng.uniform(0.2 * work, 0.8 * work))
+        b = _edge_point(work, rng)
+        draw.line([a, mid, b], fill=color, width=rng.randint(2, 5),
+                  joint="curve")
+        return Image.alpha_composite(cell, overlay)
+
+    # Arrow shaft. A cell sees either a slice crossing it (both ends on the
+    # border) or the tip region (one end in the interior, where the head sits).
+    wdt = rng.randint(3, 7)
     p0 = _edge_point(work, rng)
-    p1 = _edge_point(work, rng)
+    interior_tip = rng.random() < 0.6
+    if interior_tip:
+        p1 = (rng.uniform(0.2 * work, 0.8 * work),
+              rng.uniform(0.2 * work, 0.8 * work))
+    else:
+        p1 = _edge_point(work, rng)
     draw.line([p0, p1], fill=color, width=wdt)
 
-    # Arrowhead at the exit end on some cells (the arrow tip lands here).
-    if rng.random() < 0.4:
+    # Solid filled arrowhead at the tip — the piece-sized dark triangle.
+    if interior_tip or rng.random() < 0.3:
         dx, dy = p1[0] - p0[0], p1[1] - p0[1]
         norm = math.hypot(dx, dy) or 1.0
-        dx, dy = dx / norm, dy / norm
-        bl = rng.uniform(6, 12)
-        for ang in (math.radians(150), math.radians(-150)):
-            ca, sa = math.cos(ang), math.sin(ang)
-            bx = p1[0] + bl * (dx * ca - dy * sa)
-            by = p1[1] + bl * (dx * sa + dy * ca)
-            draw.line([p1, (bx, by)], fill=color, width=wdt)
+        ux, uy = dx / norm, dy / norm       # shaft direction
+        px, py = -uy, ux                    # perpendicular
+        hl = rng.uniform(11, 22)            # head length (up to ~half a cell)
+        hw = rng.uniform(6, 13)             # head half-width
+        bx, by = p1[0] - ux * hl, p1[1] - uy * hl
+        draw.polygon(
+            [(p1[0], p1[1]), (bx + px * hw, by + py * hw),
+             (bx - px * hw, by - py * hw)],
+            fill=color,
+        )
 
     return Image.alpha_composite(cell, overlay)
 
