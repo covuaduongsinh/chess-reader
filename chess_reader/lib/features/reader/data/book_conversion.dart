@@ -134,8 +134,12 @@ class BookConversion {
   /// image-only. Real book pages have hundreds; scanned pages have ~0.
   static const _minTextCharsPerPage = 20;
 
-  // v3: diagram recognition now rejects empty/false boards (board_validator).
-  static const _version = 3;
+  // v3: diagram recognition rejects empty/false boards (board_validator).
+  // v4: validator no longer assumes a legal position — it tolerates the square
+  //     model's misreads (extra kings, 33+ pieces) so real diagrams are not
+  //     dropped; only empty/noise regions are rejected. Re-run v3 caches that
+  //     wrongly dropped every diagram.
+  static const _version = 4;
 
   Map<String, dynamic> toJson() => {
         'v': _version,

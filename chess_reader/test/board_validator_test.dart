@@ -28,16 +28,38 @@ void main() {
     );
   });
 
-  test('accepts a sparse but legal endgame', () {
+  test('accepts a sparse endgame above the piece floor', () {
+    // 4 men (k, P, R, K): a real, deliberately sparse endgame.
     expect(isPlausibleDiagram(_labels('4k3/8/8/8/8/8/4P3/3RK3')), isTrue);
+  });
+
+  // The square model misreads a few squares on real book diagrams (e.g. a
+  // bishop as a king), so a genuine position routinely comes back with extra
+  // kings and 33+ pieces. These MUST be accepted — dropping them was the
+  // regression. Cases mirror real reads measured from a real opening book.
+  test('accepts a real board misread with multiple kings per side', () {
+    expect(
+      isPlausibleDiagram(
+          _labels('rnkqkknr/pppppppp/8/8/8/8/PPPPPPPP/RNKQKKNR')),
+      isTrue,
+    );
+  });
+
+  test('accepts a populated board with more than 32 pieces', () {
+    // 33 pieces (a misread turned one empty square into a piece): still a board.
+    final labels = _labels('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+    labels[35] = 'N';
+    expect(labels.where((l) => l.isNotEmpty).length, 33);
+    expect(isPlausibleDiagram(labels), isTrue);
   });
 
   test('rejects an empty board', () {
     expect(isPlausibleDiagram(_labels('8/8/8/8/8/8/8/8')), isFalse);
   });
 
-  test('accepts a bare K+P vs K endgame but rejects a lone king', () {
-    expect(isPlausibleDiagram(_labels('4k3/8/8/8/8/8/4P3/4K3')), isTrue);
+  test('rejects a near-empty grid below the piece floor', () {
+    // A couple of stray misreads on a blank region (3 men) — not a diagram.
+    expect(isPlausibleDiagram(_labels('4k3/8/8/8/8/8/4P3/4K3')), isFalse);
     expect(isPlausibleDiagram(_labels('4k3/8/8/8/8/8/8/8')), isFalse);
   });
 
@@ -46,17 +68,10 @@ void main() {
         isFalse);
   });
 
-  test('rejects impossible counts (two white kings, too many pawns)', () {
-    final twoKings = List.filled(64, '')
-      ..[0] = 'K'
-      ..[1] = 'K'
-      ..[2] = 'k'
-      ..[3] = 'Q'
-      ..[4] = 'R';
-    expect(isPlausibleDiagram(twoKings), isFalse);
-
-    final ninePawns = _labels('4k3/8/8/8/8/8/PPPPPPPP/PPPK4');
-    expect(isPlausibleDiagram(ninePawns), isFalse);
+  test('rejects a wall of pieces (every square read as a piece)', () {
+    // The template classifier on an unfamiliar font reads all 64 squares as
+    // pieces; no real board does. The max-pieces cap rejects it.
+    expect(isPlausibleDiagram(List.filled(64, 'N')..[0] = 'K'), isFalse);
   });
 
   test('rejects a board read with low mean confidence', () {

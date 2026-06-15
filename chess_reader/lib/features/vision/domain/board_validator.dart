@@ -3,63 +3,60 @@
 /// or any large square dark blob the locator picked up) that should be dropped.
 ///
 /// The board locator accepts any large square-ish dark region, and the square
-/// classifier always forces every cell to *some* class. Without this gate those
-/// non-boards surface as diagrams full of random pieces. We reject on actual
-/// piece evidence: a genuine diagram has a sane number of pieces, at least one
-/// king, no impossible counts, and (when the model reports it) decent average
-/// confidence.
+/// classifier always forces every cell to *some* class. Without this gate an
+/// empty board surfaces as a diagram full of random pieces.
+///
+/// Crucially, this is NOT a chess-legality check. The square CNN misreads a few
+/// squares on real book diagrams (e.g. it reads a bishop as a king, so a real
+/// position routinely comes back with two or three "kings" per side and 33+
+/// "pieces"). Rejecting those would throw away genuine, only-slightly-wrong
+/// diagrams — which is exactly the regression we must avoid. So we only
+/// distinguish *populated board* from *empty / noise*: enough men, at least one
+/// king, not a wall of pieces, and (on the ONNX path) decent mean confidence.
 library;
 
-/// Minimum number of pieces for a grid to count as a real diagram. Kept low so
-/// genuine sparse endgame studies (e.g. K+P vs K = 3 pieces) still pass; an
-/// empty board has 0 and is dropped. The "at least one king" rule, the count
-/// caps and (on the ONNX path) the confidence gate do the real filtering.
-const int kMinPieces = 2;
+/// Minimum non-empty squares for a grid to count as a populated diagram. After
+/// the per-cell emptiness gate an empty/near-empty board falls well below this;
+/// real printed diagrams have far more (typically 20-32). Kept low enough for
+/// sparse middlegame/endgame positions while still rejecting a handful of stray
+/// misreads on a blank region.
+const int kMinPieces = 4;
 
-/// A real chess position never has more than 32 pieces, 8 pawns per side, or
-/// one king per side. Exceeding these means the read is garbage, not a board.
-const int kMaxPieces = 32;
-const int kMaxPawnsPerSide = 8;
+/// A real position has at most 32 men. The square model misreads a few squares
+/// on real diagrams, so we allow generous slack above 32; the cap only rejects
+/// "wall of pieces" noise regions where nearly every square reads as a piece
+/// (e.g. the template classifier on an unfamiliar font, or a photo/figure).
+const int kMaxPieces = 40;
 
 /// Below this mean top-class probability the grid is almost certainly not a
-/// board (the model is guessing). Only applied when confidences are supplied
-/// (the ONNX path); the template classifier reports none.
+/// board (the model is guessing). Real diagrams score ~0.95. Only applied when
+/// confidences are supplied (the ONNX path); the template classifier reports
+/// none, so it relies on the structural checks alone.
 const double kMinMeanConfidence = 0.5;
 
-/// Whether [labels] (64 FEN letters, '' for empty) describe a plausible diagram.
-/// When [confidences] (64 per-cell top-class probabilities) is given, also
-/// requires a decent mean — this is what rejects non-board regions.
+/// Whether [labels] (64 FEN letters, '' for empty) describe a plausible,
+/// populated diagram. When [confidences] (64 per-cell top-class probabilities)
+/// is given, also requires a decent mean — what rejects low-confidence
+/// non-board regions.
 bool isPlausibleDiagram(List<String> labels, {List<double>? confidences}) {
   assert(labels.length == 64);
 
   var pieces = 0;
-  var whiteKings = 0, blackKings = 0;
-  var whitePawns = 0, blackPawns = 0;
+  var kings = 0;
   for (final label in labels) {
     if (label.isEmpty) continue;
     pieces++;
-    switch (label) {
-      case 'K':
-        whiteKings++;
-      case 'k':
-        blackKings++;
-      case 'P':
-        whitePawns++;
-      case 'p':
-        blackPawns++;
-    }
+    if (label == 'K' || label == 'k') kings++;
   }
 
   if (pieces < kMinPieces || pieces > kMaxPieces) return false;
-  if (whiteKings + blackKings == 0) return false;
-  if (whiteKings > 1 || blackKings > 1) return false;
-  if (whitePawns > kMaxPawnsPerSide || blackPawns > kMaxPawnsPerSide) {
-    return false;
-  }
+  // A real diagram shows at least one king; empty/noise regions usually don't.
+  // We deliberately do NOT cap kings per side: the model over-detects kings on
+  // real boards, and dropping those would lose genuine diagrams.
+  if (kings == 0) return false;
 
   if (confidences != null && confidences.isNotEmpty) {
-    final mean =
-        confidences.reduce((a, b) => a + b) / confidences.length;
+    final mean = confidences.reduce((a, b) => a + b) / confidences.length;
     if (mean < kMinMeanConfidence) return false;
   }
 
