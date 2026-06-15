@@ -18,6 +18,20 @@ void main() {
       expect(normalizeFigurines("ll'lf7+").text, 'Nf7+');
     });
 
+    test('maps mid-book variants seen on page 15 (Petrosian–Larsen)', () {
+      // Knight without the colon, and the "4J" form.
+      expect(normalizeFigurines('ltJe8').text, 'Ne8');
+      expect(normalizeFigurines('ltJg7').text, 'Ng7');
+      expect(normalizeFigurines('4Jf5').text, 'Nf5');
+      expect(normalizeFigurines('4Jxf6').text, 'Nxf6');
+      // Queen variants "il and 'fi.
+      expect(normalizeFigurines('"ile7').text, 'Qe7');
+      expect(normalizeFigurines("'fia7").text, 'Qa7');
+      // The new rules stay no-ops on prose.
+      expect(normalizeFigurines("the final word").text, 'the final word');
+      expect(normalizeFigurines('a literal').text, 'a literal');
+    });
+
     test('repairs bold-font glyph collisions in move context only', () {
       // Rank 1 prints as lowercase L; the tokenizer repairs it inside move
       // tokens only.

@@ -113,7 +113,29 @@ class BookConversion {
       pages.firstWhere((p) => p.index == index,
           orElse: () => const ConvertedPage(index: -1)).diagrams;
 
-  static const _version = 2;
+  /// Whether the book has a usable text layer. A scanned/image-only PDF
+  /// extracts (almost) no text, so move resolution and the HTML reading view
+  /// produce nothing — the reader warns and steers to Original pages.
+  ///
+  /// EPUB is XHTML (always text), so only PDFs are gated; the test is a low
+  /// average of non-whitespace characters per page.
+  bool get hasExtractableText {
+    if (format != 'pdf' || pages.isEmpty) return true;
+    var chars = 0;
+    for (final p in pages) {
+      final t = p.text;
+      if (t == null) continue;
+      chars += t.replaceAll(RegExp(r'\s'), '').length;
+    }
+    return chars >= pages.length * _minTextCharsPerPage;
+  }
+
+  /// Average non-whitespace chars/page below which a PDF is treated as
+  /// image-only. Real book pages have hundreds; scanned pages have ~0.
+  static const _minTextCharsPerPage = 20;
+
+  // v3: diagram recognition now rejects empty/false boards (board_validator).
+  static const _version = 3;
 
   Map<String, dynamic> toJson() => {
         'v': _version,

@@ -123,4 +123,19 @@ void main() {
     expect(anchors.single.board.size, closeTo(404, 8));
     expect(anchors.single.fen, '$placement w KQkq - 0 1');
   });
+
+  test('empty board is rejected, not read as random pieces', () async {
+    final page = img.Image(width: 800, height: 1000);
+    img.fill(page, color: _rgb(0xFFFFFF));
+    // A framed, checkerboarded board with no pieces on it.
+    await _drawDiagram(page, '8/8/8/8/8/8/8/8', left: 150, top: 200, size: 400);
+
+    final service = VisionService(
+      locator: const ConnectedComponentBoardLocator(),
+      classifier: TemplateSquareClassifier(_loadPiece),
+    );
+    final anchors = await service.scanPage(page);
+
+    expect(anchors, isEmpty);
+  });
 }

@@ -213,7 +213,8 @@ void _wrapTokens(
       }
       replacement.add(dom.Element.tag('chessmove')
         ..attributes['idx'] = '$t'
-        ..append(dom.Text(text.substring(localStart, localEnd))));
+        // Standard SAN (figurines mapped to letters), not the raw glyphs.
+        ..append(dom.Text(tokens[t].san)));
       cursor = localEnd;
     }
     if (cursor < text.length) {

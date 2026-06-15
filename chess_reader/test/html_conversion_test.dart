@@ -51,6 +51,38 @@ void main() {
           lessThan(html.indexOf('<chessmove')));
     });
 
+    test('renders figurine moves as standard SAN, not glyph soup', () {
+      // Gambit-font extraction: "lt:J" is a knight glyph sequence.
+      final conversion = BookConversion(
+        title: 'T',
+        format: 'pdf',
+        pages: const [
+          ConvertedPage(index: 1, text: '1.e4 e5 2.lt:Jf3 lt:Jc6'),
+        ],
+      );
+      final html = buildPdfChapters(conversion).single.html;
+
+      // All four moves resolved and the knight moves read as standard SAN.
+      expect(RegExp(r'<chessmove idx="\d+">').allMatches(html).length, 4);
+      expect(html.contains('<chessmove idx="2">Nf3</chessmove>'), isTrue);
+      expect(html.contains('<chessmove idx="3">Nc6</chessmove>'), isTrue);
+      // No raw figurine soup leaks into the output.
+      expect(html.contains('lt:J'), isFalse);
+    });
+
+    test('normalizes figurine glyphs in surrounding prose for display', () {
+      final conversion = BookConversion(
+        title: 'T',
+        format: 'pdf',
+        pages: const [
+          ConvertedPage(index: 1, text: 'The knight ♘ dominates. 1.e4 e5'),
+        ],
+      );
+      final html = buildPdfChapters(conversion).single.html;
+      expect(html.contains('The knight N dominates.'), isTrue);
+      expect(html.contains('♘'), isFalse);
+    });
+
     test('escapes HTML metacharacters in page text', () {
       final conversion = BookConversion(
         title: 'T',
@@ -61,6 +93,35 @@ void main() {
       expect(html.contains('&lt;'), isTrue);
       expect(html.contains('&amp;'), isTrue);
       expect(html.contains('&gt;'), isTrue);
+    });
+  });
+
+  group('hasExtractableText', () {
+    BookConversion pdf(List<String?> pageTexts) => BookConversion(
+          title: 'T',
+          format: 'pdf',
+          pages: [
+            for (var i = 0; i < pageTexts.length; i++)
+              ConvertedPage(index: i + 1, text: pageTexts[i]),
+          ],
+        );
+
+    test('true for a normal text PDF', () {
+      expect(
+        pdf(['1.e4 e5 2.Nf3 Nc6 a real page of prose and moves.']).hasExtractableText,
+        isTrue,
+      );
+    });
+
+    test('false for an image-only PDF (empty/near-empty page text)', () {
+      expect(pdf(['', '', '', '']).hasExtractableText, isFalse);
+      expect(pdf([null, null]).hasExtractableText, isFalse);
+      expect(pdf(['  \n ', ' ']).hasExtractableText, isFalse);
+    });
+
+    test('EPUB is always considered to have text', () {
+      const c = BookConversion(title: 'T', format: 'epub', pages: []);
+      expect(c.hasExtractableText, isTrue);
     });
   });
 

@@ -36,14 +36,17 @@ const _sq = r'(?=[a-h1-8]?x?[a-h][1-8l]|[a-h]?x)';
 
 /// Gambit Publications house font (e.g. "Secrets of Positional Chess").
 final List<_Rule> _gambitRules = [
-  // Knight: lt:J etc.
+  // Knight: lt:J etc. Mid-book pages also print it without the colon ("ltJf6")
+  // and as "4J" ("4Jf5", "35 4Jxf6").
   _Rule('lt:J$_sq', 'N'),
+  _Rule('ltJ$_sq', 'N'),
   _Rule("lt'l$_sq", 'N'),
   _Rule('lLl$_sq', 'N'),
   _Rule('ll:l$_sq', 'N'),
   _Rule("ll'l$_sq", 'N'),
   _Rule('ttJ$_sq', 'N'),
   _Rule('tt:J$_sq', 'N'),
+  _Rule('4J$_sq', 'N'),
   // Rook: many ligature variants.
   _Rule(r'l:!\.' + _sq, 'R'),
   _Rule(r'l:r\.' + _sq, 'R'),
@@ -53,8 +56,9 @@ final List<_Rule> _gambitRules = [
   _Rule('ll$_sq', 'R'),
   // Bishop.
   _Rule(r'i\.' + _sq, 'B'),
-  // Queen: leading quote/degree + iV / ii' / ilf soup.
-  _Rule('["\'°]i[Vi]\'?$_sq', 'Q'),
+  // Queen: leading quote/degree + iV / ii' / il / fi / ilf soup.
+  _Rule('["\'°]i[Vil]\'?$_sq', 'Q'),
+  _Rule('["\'°]fi\'?$_sq', 'Q'),
   _Rule("'ilf$_sq", 'Q'),
   _Rule('"ii\'?$_sq', 'Q'),
   _Rule('°ii\'?$_sq', 'Q'),

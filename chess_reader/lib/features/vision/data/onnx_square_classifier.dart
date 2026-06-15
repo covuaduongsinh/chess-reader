@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
@@ -10,6 +11,23 @@ import '../domain/square_classifier.dart';
 const List<String> kModelClasses = squareLabels;
 
 const String kSquareModelAsset = 'assets/models/square_classifier.onnx';
+
+/// Below this contrast (std-dev of a cell's normalized pixels) a cell is forced
+/// to empty regardless of the CNN, so the blank squares of an empty/sparse
+/// board don't get hallucinated pieces. Mirrors `TemplateSquareClassifier`'s
+/// emptiness gate (its grayscale std-dev 10 ≈ 10/127.5 here, as cells are
+/// normalized to [-1, 1] by `preprocessCell`).
+const double _emptyStdDev = 0.08;
+
+/// A classified board: 64 FEN labels (row-major) plus, per cell, the model's
+/// top-class probability — used to reject non-board regions read with low
+/// confidence (see `isPlausibleDiagram`).
+class BoardClassification {
+  const BoardClassification(this.labels, this.confidences);
+
+  final List<String> labels;
+  final List<double> confidences;
+}
 
 /// Runs the per-square CNN over a board's 64 cells in a single batched
 /// inference. Native ONNX Runtime executes off the Dart thread, so calling
@@ -38,8 +56,11 @@ class OnnxSquareClassifier {
   }
 
   /// [cells64] holds 64 preprocessed cells (row-major) concatenated, each of
-  /// length [kCellSize]². Returns 64 FEN labels.
-  Future<List<String>> classifyBoard(Float32List cells64) async {
+  /// length [kCellSize]². Returns 64 FEN labels and per-cell confidences.
+  ///
+  /// A near-flat cell (low contrast) is forced to empty before trusting the
+  /// CNN — see [_emptyStdDev].
+  Future<BoardClassification> classifyBoard(Float32List cells64) async {
     const cellLen = kCellSize * kCellSize;
     assert(cells64.length == 64 * cellLen);
     final input = await OrtValue.fromList(
@@ -54,6 +75,7 @@ class OnnxSquareClassifier {
         await v.dispose();
       }
       final labels = <String>[];
+      final confidences = <double>[];
       final n = kModelClasses.length;
       for (var cell = 0; cell < 64; cell++) {
         var best = 0;
@@ -65,12 +87,38 @@ class OnnxSquareClassifier {
             best = c;
           }
         }
-        labels.add(kModelClasses[best]);
+        // Softmax probability of the winning class.
+        var sumExp = 0.0;
+        for (var c = 0; c < n; c++) {
+          sumExp += math.exp(flat[cell * n + c].toDouble() - bestVal);
+        }
+        final confidence = 1.0 / sumExp;
+
+        // Emptiness gate: a flat cell is empty whatever the CNN says.
+        final empty =
+            _cellStdDev(cells64, cell * cellLen, cellLen) < _emptyStdDev;
+        labels.add(empty ? '' : kModelClasses[best]);
+        confidences.add(confidence);
       }
-      return labels;
+      return BoardClassification(labels, confidences);
     } finally {
       await input.dispose();
     }
+  }
+
+  /// Standard deviation of one cell's normalized pixels in [cells64].
+  static double _cellStdDev(Float32List cells64, int start, int len) {
+    var mean = 0.0;
+    for (var i = 0; i < len; i++) {
+      mean += cells64[start + i];
+    }
+    mean /= len;
+    var sumSq = 0.0;
+    for (var i = 0; i < len; i++) {
+      final d = cells64[start + i] - mean;
+      sumSq += d * d;
+    }
+    return math.sqrt(sumSq / len);
   }
 
   Future<void> dispose() => _session.close();

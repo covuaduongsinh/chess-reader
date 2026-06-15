@@ -4,7 +4,7 @@
 ; Produces dist\chess_reader-setup-<version>.exe from the release build.
 
 #define MyAppName "Chess Reader"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Vu-Hung Quan"
 #define MyAppExeName "chess_reader.exe"
 ; Release build output, relative to this script (windows\installer).

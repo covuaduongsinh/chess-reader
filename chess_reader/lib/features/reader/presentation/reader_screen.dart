@@ -38,6 +38,51 @@ class ReaderScreen extends ConsumerStatefulWidget {
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _boardVisibleNarrow = true;
   String? _promptedPath;
+  String? _noTextWarnedPath;
+
+  /// Once the conversion is ready, either warn that the PDF has no text layer
+  /// (image-only scan) or — if it does — offer the reading-view choice.
+  void _handleOpenedPdf(String path) {
+    if (_isEpub(path)) return;
+    ref.watch(conversionProvider(path)).whenOrNull(data: (c) {
+      if (c.hasExtractableText) {
+        _maybePromptView(path);
+      } else {
+        _maybeWarnNoText(path);
+      }
+    });
+  }
+
+  /// A scanned/image-only PDF: clickable moves and the reading view can't work.
+  /// Warn once, force Original pages, and suppress the reading-view prompt.
+  void _maybeWarnNoText(String path) {
+    if (_noTextWarnedPath == path) return;
+    _noTextWarnedPath = path;
+    _promptedPath = path; // don't also ask which view to use
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      ref.read(libraryStoreProvider.notifier).setViewMode(path, 'pdf');
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('No text found in this PDF'),
+          content: const Text(
+            'This PDF looks like scanned page images — it has no extractable '
+            'text. Clickable moves and the reflowed Reading view won\'t work, '
+            'but the original pages and diagram detection still do.\n\n'
+            'To enable moves and the reading view, run the file through an OCR '
+            'tool (e.g. OCRmyPDF) to add a text layer, then reopen it.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
 
   /// On opening a PDF with no saved preference, ask how to read it.
   void _maybePromptView(String path) {
@@ -102,7 +147,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final bookPath = ref.watch(openedBookProvider);
-    if (bookPath != null) _maybePromptView(bookPath);
+    if (bookPath != null) _handleOpenedPdf(bookPath);
     final showViewToggle = bookPath != null && !_isEpub(bookPath);
 
     return Scaffold(

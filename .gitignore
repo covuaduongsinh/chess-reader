@@ -1,6 +1,8 @@
-# Copyrighted test books — never commit
+# Copyrighted test books and page images — never commit
 *.pdf
 *.epub
+*.tif
+*.tiff
 
 # Large engine binaries — fetched by tool/fetch_stockfish.ps1
 chess_reader/assets/engines/*.exe

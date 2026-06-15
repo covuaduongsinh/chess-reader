@@ -2,6 +2,7 @@ import 'package:image/image.dart' as img;
 
 import '../domain/board_locator.dart';
 import '../domain/board_slicer.dart';
+import '../domain/board_validator.dart';
 import '../domain/fen_assembler.dart';
 import '../domain/square_classifier.dart';
 
@@ -32,6 +33,9 @@ class VisionService {
     for (final board in locator.locate(page)) {
       final cells = sliceBoardCells(page, board);
       final labels = [for (final c in cells) classifier.classify(c)];
+      // Structural plausibility only — the template classifier reports no
+      // probabilities. Drops empty grids and other non-board regions.
+      if (!isPlausibleDiagram(labels)) continue;
       anchors.add(DiagramAnchor(board: board, fen: assembleFen(labels)));
     }
     return anchors;

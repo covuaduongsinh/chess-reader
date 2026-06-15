@@ -1,4 +1,5 @@
 import '../../../core/models/move_token.dart';
+import '../domain/figurine_map.dart';
 import '../domain/move_resolver.dart';
 import '../domain/san_tokenizer.dart';
 import 'book_conversion.dart';
@@ -65,7 +66,9 @@ String _buildPageHtml(
     if (t.start > cursor) {
       buf.write(_formatText(text.substring(cursor, t.start)));
     }
-    final inner = _escapeText(text.substring(t.start, t.end));
+    // Show standard SAN (figurine glyphs already mapped to letters), not the
+    // book's raw glyph soup. The chip's idx still drives the side board.
+    final inner = _escapeText(t.san);
     buf.write('<chessmove idx="$k">$inner</chessmove>');
     cursor = t.end;
   }
@@ -84,8 +87,11 @@ String _diagramHtml(ConvertedDiagram d) =>
     '<img src="data:image/png;base64,${d.cropPngBase64}"></chessdiagram>';
 
 /// Escapes a text run and turns blank lines into paragraph breaks (single
-/// newlines become spaces — PDF lines are wrapped, not semantic).
-String _formatText(String s) => _escapeText(s)
+/// newlines become spaces — PDF lines are wrapped, not semantic). Figurine
+/// glyphs in the prose between moves are normalized to letters for display
+/// (`normalizeFigurines` is prose-safe), so non-standard fonts don't leak
+/// glyph soup into the reading view.
+String _formatText(String s) => _escapeText(normalizeFigurines(s).text)
     .replaceAll(RegExp(r'\n{2,}'), '</p><p>')
     .replaceAll('\n', ' ');
 

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/board_validator.dart';
 import '../domain/fen_assembler.dart';
 import 'onnx_square_classifier.dart';
 import 'vision_isolate.dart';
@@ -65,12 +66,18 @@ class DiagramRecognizer {
     if (classifier == null) return const [];
     final out = <RecognizedDiagram>[];
     for (final b in boards) {
-      final labels = await classifier.classifyBoard(b.cells);
+      final result = await classifier.classifyBoard(b.cells);
+      // Drop empty grids, photos/figures and other non-board regions the
+      // locator picked up: only emit confidently-read, populated positions.
+      if (!isPlausibleDiagram(result.labels,
+          confidences: result.confidences)) {
+        continue;
+      }
       out.add(RecognizedDiagram(
         left: b.left,
         top: b.top,
         size: b.size,
-        fen: assembleFen(labels),
+        fen: assembleFen(result.labels),
         cropPng: b.cropPng,
       ));
     }

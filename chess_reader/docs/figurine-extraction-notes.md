@@ -34,3 +34,18 @@ U+FFFD is lossy (any unmapped glyph collapses to it) — treat a `�`
 followed by a square as a king move *candidate*, validated by legality,
 never a certainty. True fidelity may require font-name-keyed tables via
 PDFium font APIs later.
+
+## Mid-book variants (page 15, Petrosian–Larsen)
+
+The page-1 table above missed forms that appear deeper in the book; added to
+`_gambitRules`:
+
+| Extracted sequence(s) | Piece | Example            |
+|-----------------------|-------|--------------------|
+| `ltJ` (no colon), `4J` | N    | `ltJe8`, `4Jxf6`   |
+| `"il`, `'fi`          | Q     | `"ile7`, `'fia7`   |
+
+Effect across the book: resolved moves 1647 → 1811 (pages with ≥1 resolved
+move unchanged at 195/226). Residual gaps remain — this font has extensive,
+bold/italic-dependent glyph collisions (e.g. rank 5 as lowercase `s` in
+`ii.gs` = Bg5, rook as `A` in `Axc4` = Rxc4) that are not yet mapped.
