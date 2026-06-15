@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,14 +94,19 @@ class _HtmlChapterListState extends ConsumerState<HtmlChapterList> {
 }
 
 /// Renders one [EpubChapter] (used for both EPUB chapters and PDF "pages" in
-/// the HTML reading view) as flutter_html with three custom tags:
-/// - `<chessmove idx>` — tappable move that drives the side board;
-/// - `<chessdiagram fen>` — a detected board image captioned with its FEN,
-///   tappable to load that position onto the side board;
-/// - `<img>` — inlined base64 images.
+/// the HTML reading view). Diagrams are pulled OUT of the flutter_html render
+/// and shown as native [_DiagramTile] widgets interleaved with the prose; moves
+/// are rendered inline as a `TextSpan` with a `TapGestureRecognizer`.
+///
+/// Why not embed both as flutter_html widgets? flutter_html turns a
+/// `TagExtension` widget into a `WidgetSpan`, and taps on a `GestureDetector`
+/// inside a `WidgetSpan`-in-`RichText` are dropped most of the time (the same
+/// gesture-arena problem the PDF reader sidesteps with a real overlay). The
+/// library itself only delivers reliable taps through a `TextSpan` recognizer
+/// (see its `<a>` handling), so moves use that and diagrams become real widgets.
 ///
 /// [sourceKey] scopes move-selection highlighting to this chapter/page.
-class ChapterHtml extends ConsumerWidget {
+class ChapterHtml extends ConsumerStatefulWidget {
   const ChapterHtml({
     super.key,
     required this.chapter,
@@ -111,75 +117,153 @@ class ChapterHtml extends ConsumerWidget {
   final Object sourceKey;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChapterHtml> createState() => _ChapterHtmlState();
+}
+
+class _ChapterHtmlState extends ConsumerState<ChapterHtml> {
+  /// Prose (HTML) segments interleaved with the diagrams extracted from them.
+  late List<_Segment> _segments = _splitSegments(widget.chapter.html);
+
+  /// One persistent tap recognizer per move index, reused across rebuilds (a
+  /// recognizer must outlive the span it drives) and disposed here.
+  final Map<int, TapGestureRecognizer> _moveTaps = {};
+
+  @override
+  void didUpdateWidget(ChapterHtml old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.chapter, widget.chapter)) {
+      _segments = _splitSegments(widget.chapter.html);
+      _disposeTaps();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeTaps();
+    super.dispose();
+  }
+
+  void _disposeTaps() {
+    for (final t in _moveTaps.values) {
+      t.dispose();
+    }
+    _moveTaps.clear();
+  }
+
+  TapGestureRecognizer _tapFor(int idx) => _moveTaps.putIfAbsent(
+        idx,
+        () => TapGestureRecognizer()
+          ..onTap = () => ref
+              .read(activeLineProvider.notifier)
+              .select(widget.chapter.moves, idx, widget.sourceKey),
+      );
+
+  @override
+  Widget build(BuildContext context) {
     final active = ref.watch(activeLineProvider);
-    final selectedIdx =
-        active != null && active.sourceKey == sourceKey ? active.index : -1;
+    final selectedIdx = active != null && active.sourceKey == widget.sourceKey
+        ? active.index
+        : -1;
     final highlight = Theme.of(context).colorScheme.primary;
-    final textScale =
-        ref.watch(settingsProvider.select((s) => s.textScale));
+    final textScale = ref.watch(settingsProvider.select((s) => s.textScale));
+
+    // Re-created each build so the highlight tracks the selected move; the
+    // recognizer it points at is cached, so taps keep working across rebuilds.
+    final moveExt = TagExtension.inline(
+      tagsToExtend: const {'chessmove'},
+      builder: (ctx) {
+        final idx = int.tryParse(ctx.attributes['idx'] ?? '') ?? -1;
+        final text = ctx.element?.text ?? '';
+        if (idx < 0) return TextSpan(text: text);
+        final selected = idx == selectedIdx;
+        return TextSpan(
+          text: text,
+          recognizer: _tapFor(idx),
+          style: TextStyle(
+            color: highlight,
+            fontWeight: FontWeight.w600,
+            backgroundColor:
+                highlight.withValues(alpha: selected ? 0.30 : 0.08),
+          ),
+        );
+      },
+    );
+    final imgExt = TagExtension(
+      tagsToExtend: const {'img'},
+      builder: (ctx) {
+        final bytes = _decodeDataImage(ctx.attributes['src'] ?? '');
+        return bytes == null ? const SizedBox.shrink() : Image.memory(bytes);
+      },
+    );
+
+    final children = <Widget>[];
+    for (final seg in _segments) {
+      if (seg.fen != null) {
+        children.add(_DiagramTile(fen: seg.fen!));
+      } else if (seg.html!.trim().isNotEmpty) {
+        children.add(Html(
+          data: seg.html,
+          style: {
+            'body': Style(
+              fontSize: FontSize(16 * textScale),
+              margin: Margins.zero,
+              padding: HtmlPaddings.zero,
+            ),
+          },
+          extensions: [moveExt, imgExt],
+        ));
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Html(
-        data: chapter.html,
-        style: {
-          'body': Style(fontSize: FontSize(16 * textScale)),
-        },
-        extensions: [
-          TagExtension(
-            tagsToExtend: const {'chessmove'},
-            builder: (ctx) {
-              final idx =
-                  int.tryParse(ctx.attributes['idx'] ?? '') ?? -1;
-              final text = ctx.element?.text ?? '';
-              final selected = idx == selectedIdx;
-              return GestureDetector(
-                onTap: idx >= 0
-                    ? () => ref
-                        .read(activeLineProvider.notifier)
-                        .select(chapter.moves, idx, sourceKey)
-                    : null,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    color:
-                        highlight.withValues(alpha: selected ? 0.25 : 0.08),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      color: highlight,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          TagExtension(
-            tagsToExtend: const {'chessdiagram'},
-            builder: (ctx) {
-              final fen = ctx.attributes['fen'] ?? '';
-              return _DiagramTile(fen: fen);
-            },
-          ),
-          TagExtension(
-            tagsToExtend: const {'img'},
-            builder: (ctx) {
-              final src = ctx.attributes['src'] ?? '';
-              final bytes = _decodeDataImage(src);
-              return bytes == null
-                  ? const SizedBox.shrink()
-                  : Image.memory(bytes);
-            },
-          ),
-        ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
       ),
     );
   }
 }
+
+/// A prose run (`html`) or an extracted diagram (`fen`); exactly one is set.
+class _Segment {
+  const _Segment.html(this.html) : fen = null;
+  const _Segment.diagram(this.fen) : html = null;
+
+  final String? html;
+  final String? fen;
+}
+
+final _diagramRe = RegExp(
+  r'<chessdiagram\b[^>]*?\bfen="([^"]*)"[^>]*>.*?</chessdiagram>',
+  caseSensitive: false,
+  dotAll: true,
+);
+
+/// Splits chapter HTML into prose segments and the diagrams embedded in it, so
+/// each diagram can render as a native (reliably tappable) widget.
+List<_Segment> _splitSegments(String html) {
+  final segments = <_Segment>[];
+  var cursor = 0;
+  for (final m in _diagramRe.allMatches(html)) {
+    if (m.start > cursor) {
+      segments.add(_Segment.html(html.substring(cursor, m.start)));
+    }
+    segments.add(_Segment.diagram(_unescapeAttr(m.group(1) ?? '')));
+    cursor = m.end;
+  }
+  if (cursor < html.length) {
+    segments.add(_Segment.html(html.substring(cursor)));
+  }
+  if (segments.isEmpty) segments.add(_Segment.html(html));
+  return segments;
+}
+
+String _unescapeAttr(String s) => s
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 
 /// A detected diagram: a chessboard rendered from its FEN, the FEN caption, and
 /// a tap target that loads the position onto the side board.
@@ -212,12 +296,9 @@ class _DiagramTile extends ConsumerWidget {
         child: Card(
           clipBehavior: Clip.antiAlias,
           margin: const EdgeInsets.symmetric(vertical: 8),
-          // GestureDetector with an opaque hit test (not InkWell): inside
-          // flutter_html's widget span an InkWell doesn't reliably win the tap
-          // over the board area, so the diagram looked dead in the reading view
-          // while it worked in PDF mode. This mirrors the PDF overlay's handler.
-          // The explicit button below is the reliable affordance — a bare tap on
-          // the board can still lose the gesture arena to the surrounding scroll.
+          // Rendered as a real widget (not inside flutter_html), so an opaque
+          // GestureDetector on the whole tile mirrors the PDF overlay's handler.
+          // The explicit Load button below is the primary affordance.
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: load,
