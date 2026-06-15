@@ -166,15 +166,17 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    final moveFinder = find.text('e4');
-    expect(moveFinder, findsOneWidget, reason: 'move chip should render');
+    // The move is an inline TextSpan (with a TapGestureRecognizer), not a
+    // standalone Text widget, so it lives inside the paragraph's RichText.
+    final paragraphFinder = find.textContaining('e4');
+    expect(paragraphFinder, findsOneWidget, reason: 'move should render');
 
     final container = ProviderScope.containerOf(
-        tester.element(moveFinder),
+        tester.element(paragraphFinder),
         listen: false);
     expect(container.read(gameSessionProvider).fen, isNot(expectedFen));
 
-    await tester.tap(moveFinder);
+    await tester.tapOnText(find.textRange.ofSubstring('e4'));
     await tester.pumpAndSettle();
 
     expect(
