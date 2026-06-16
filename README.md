@@ -11,7 +11,7 @@ The Flutter app lives in [`chess_reader/`](chess_reader/).
 ## Download
 
 **Windows:** download the installer from the latest release —
-[**chess_reader-setup-1.3.1.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.3.1/chess_reader-setup-1.3.1.exe)
+[**chess_reader-setup-1.4.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.4.0/chess_reader-setup-1.4.0.exe)
 ([all releases](https://github.com/alpinist-GH/chess-reader/releases/latest)).
 
 It's a per‑user install (no administrator rights needed). The installer is
