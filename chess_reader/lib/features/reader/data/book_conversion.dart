@@ -142,7 +142,10 @@ class BookConversion {
   //     wrongly dropped every diagram.
   // v5: board_repair adds the promotion-aware material cap (e.g. a 3rd rook with
   //     all pawns present is demoted), so cached FENs from v4 must be recomputed.
-  static const _version = 5;
+  // v6: mask-aware recognition (arrow segmenter + 2-channel classifier) reads
+  //     through drawn arrows/annotations, so v5 caches with phantom pieces on
+  //     arrow squares must be recomputed.
+  static const _version = 6;
 
   Map<String, dynamic> toJson() => {
         'v': _version,
