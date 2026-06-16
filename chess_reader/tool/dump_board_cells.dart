@@ -43,6 +43,14 @@ Future<void> main(List<String> args) async {
     for (var b = 0; b < boards.length; b++) {
       final cells = sliceBoardCells(image, boards[b]);
       final dir = Directory('$outDir/p${pageNum}_b$b')..createSync(recursive: true);
+      // Whole-board crop (for prototyping image-level annotation detection).
+      final crop = img.copyCrop(image,
+          x: boards[b].left,
+          y: boards[b].top,
+          width: boards[b].size,
+          height: boards[b].size);
+      File('${dir.path}/board.png')
+          .writeAsBytesSync(Uint8List.fromList(img.encodePng(crop)));
       for (var i = 0; i < 64; i++) {
         final rr = i ~/ 8, ff = i % 8;
         final png = img.encodePng(cells[i]);

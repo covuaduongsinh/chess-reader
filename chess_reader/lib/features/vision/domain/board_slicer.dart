@@ -8,6 +8,10 @@ import 'board_locator.dart';
 /// MUST match `CELL` in tool/vision_train/model.py.
 const int kCellSize = 32;
 
+/// Side length of the board image fed to the arrow segmenter.
+/// MUST match `SEG_SIZE` in tool/vision_train/seg_model.py.
+const int kSegSize = 192;
+
 /// Crops [board] from [page] to the area inside its printed frame, then slices
 /// it into 64 cell images in row-major order (rank 8 → rank 1, file a → h).
 ///
@@ -15,8 +19,11 @@ const int kCellSize = 32;
 /// high-contrast sliver of the neighbouring square into every cell and wrecks
 /// classification. Edge rows/cols that are almost entirely dark (the frame
 /// line) are peeled before slicing.
-List<img.Image> sliceBoardCells(img.Image page, LocatedBoard board) {
-  final inner = _cropInsideFrame(page, board);
+List<img.Image> sliceBoardCells(img.Image page, LocatedBoard board) =>
+    sliceInner(cropInsideFrame(page, board));
+
+/// Slices the already frame-cropped [inner] board into 64 cell images.
+List<img.Image> sliceInner(img.Image inner) {
   final cell = inner.width / 8;
   final cells = <img.Image>[];
   for (var r = 0; r < 8; r++) {
@@ -31,6 +38,23 @@ List<img.Image> sliceBoardCells(img.Image page, LocatedBoard board) {
     }
   }
   return cells;
+}
+
+/// Grayscale → [kSegSize]² → normalize to [-1, 1]. The whole inside-frame board
+/// fed to the arrow segmenter (which was trained on frame-free boards, so it
+/// sees the same content). Replicates the training preprocessing.
+Float32List preprocessSegInput(img.Image inner) {
+  final small = img.copyResize(
+    img.grayscale(img.Image.from(inner)),
+    width: kSegSize,
+    height: kSegSize,
+  );
+  final out = Float32List(kSegSize * kSegSize);
+  var i = 0;
+  for (final p in small) {
+    out[i++] = (p.r / 255.0 - 0.5) / 0.5;
+  }
+  return out;
 }
 
 /// Grayscale → [kCellSize]² → normalize to [-1, 1].
@@ -51,7 +75,7 @@ Float32List preprocessCell(img.Image cell) {
   return out;
 }
 
-img.Image _cropInsideFrame(img.Image page, LocatedBoard board) {
+img.Image cropInsideFrame(img.Image page, LocatedBoard board) {
   final gray = img.grayscale(img.copyCrop(
     page,
     x: board.left,

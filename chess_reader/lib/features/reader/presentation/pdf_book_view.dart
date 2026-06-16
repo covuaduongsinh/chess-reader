@@ -179,6 +179,8 @@ class _DiagramAnchorsOverlay extends ConsumerWidget {
                           Text('Could not read this diagram reliably')));
                 }
               },
+              // Just a subtle border (no corner badge) marks the tappable
+              // diagram; the tooltip explains it on hover.
               child: Tooltip(
                 message: 'Tap to load this position',
                 child: DecoratedBox(
@@ -186,20 +188,6 @@ class _DiagramAnchorsOverlay extends ConsumerWidget {
                     border: Border.all(
                         color: highlight.withValues(alpha: 0.6), width: 2),
                     borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: highlight,
-                        borderRadius: const BorderRadius.only(
-                            bottomRight: Radius.circular(4)),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 2),
-                      child: const Icon(Icons.touch_app,
-                          size: 14, color: Colors.white),
-                    ),
                   ),
                 ),
               ),

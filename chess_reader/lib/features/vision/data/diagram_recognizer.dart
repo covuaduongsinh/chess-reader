@@ -83,7 +83,8 @@ class DiagramRecognizer {
     if (classifier == null) return const [];
     final out = <RecognizedDiagram>[];
     for (final b in boards) {
-      final result = await _locked(() => classifier.classifyBoard(b.cells));
+      final result =
+          await _locked(() => classifier.classifyBoard(b.cells, b.segInput));
       // Drop empty grids, photos/figures and other non-board regions the
       // locator picked up: only emit confidently-read, populated positions.
       if (!isPlausibleDiagram(result.labels,

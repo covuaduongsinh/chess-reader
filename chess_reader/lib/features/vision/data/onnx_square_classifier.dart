@@ -10,7 +10,11 @@ import '../domain/square_classifier.dart';
 /// [squareLabels] contract used by the template classifier.
 const List<String> kModelClasses = squareLabels;
 
-const String kSquareModelAsset = 'assets/models/square_classifier.onnx';
+/// The arrow segmenter (whole board → per-pixel annotation mask) and the
+/// 2-channel square classifier that reads each cell from [grayscale, mask] so
+/// drawn arrows/boxes are ignored rather than hallucinated into pieces.
+const String kArrowSegAsset = 'assets/models/arrow_seg.onnx';
+const String kSquareModelAsset = 'assets/models/square_classifier2.onnx';
 
 /// Below this contrast (std-dev of a cell's normalized pixels) a cell is forced
 /// to empty regardless of the CNN, so the blank squares of an empty/sparse
@@ -35,46 +39,67 @@ class BoardClassification {
   final List<Float32List>? classProbs;
 }
 
-/// Runs the per-square CNN over a board's 64 cells in a single batched
-/// inference. Native ONNX Runtime executes off the Dart thread, so calling
-/// this from the main isolate does not block the UI.
+/// Runs the arrow segmenter then the per-square CNN over a board's 64 cells.
+/// The segmenter sees the whole board (multi-square context a per-cell model
+/// can't have) and marks annotation strokes; the mask becomes a second input
+/// channel so the classifier reads the piece under an arrow, or empty.
 ///
 /// Platform-channel based (flutter_onnxruntime) — must NOT be constructed
 /// inside a `compute()` isolate; the heavy cell preprocessing happens there
 /// instead and the resulting tensors are classified here.
 class OnnxSquareClassifier {
-  OnnxSquareClassifier._(this._session, this._inputName);
+  OnnxSquareClassifier._(this._seg, this._segInput, this._cls, this._clsInput);
 
-  final OrtSession _session;
-  final String _inputName;
+  final OrtSession _seg;
+  final String _segInput;
+  final OrtSession _cls;
+  final String _clsInput;
 
   static Future<OnnxSquareClassifier?> tryLoad() async {
     try {
-      final session = await OnnxRuntime()
-          .createSessionFromAsset(kSquareModelAsset);
-      final inputName =
-          session.inputNames.isNotEmpty ? session.inputNames.first : 'cells';
-      return OnnxSquareClassifier._(session, inputName);
+      final rt = OnnxRuntime();
+      final seg = await rt.createSessionFromAsset(kArrowSegAsset);
+      final cls = await rt.createSessionFromAsset(kSquareModelAsset);
+      final segIn = seg.inputNames.isNotEmpty ? seg.inputNames.first : 'board';
+      final clsIn = cls.inputNames.isNotEmpty ? cls.inputNames.first : 'cells';
+      return OnnxSquareClassifier._(seg, segIn, cls, clsIn);
     } catch (_) {
-      // Model asset absent or runtime unavailable: caller falls back.
+      // Model assets absent or runtime unavailable: caller falls back.
       return null;
     }
   }
 
-  /// [cells64] holds 64 preprocessed cells (row-major) concatenated, each of
-  /// length [kCellSize]². Returns 64 FEN labels and per-cell confidences.
-  ///
-  /// A near-flat cell (low contrast) is forced to empty before trusting the
-  /// CNN — see [_emptyStdDev].
-  Future<BoardClassification> classifyBoard(Float32List cells64) async {
+  /// [cells64] holds 64 preprocessed grayscale cells (row-major) concatenated,
+  /// each [kCellSize]²; [segInput] is the whole inside-frame board as a
+  /// [kSegSize]² grayscale tensor. Returns 64 FEN labels and per-cell data.
+  Future<BoardClassification> classifyBoard(
+      Float32List cells64, Float32List segInput) async {
     const cellLen = kCellSize * kCellSize;
     assert(cells64.length == 64 * cellLen);
-    final input = await OrtValue.fromList(
-      cells64,
-      [64, 1, kCellSize, kCellSize],
-    );
+    final mask = await _segmentMask(segInput);
+
+    // Pack the 2-channel classifier input [64, 2, 32, 32]: channel 0 grayscale,
+    // channel 1 the arrow mask nearest-upsampled from the segmenter output.
+    const seg = kSegSize;
+    const segCell = seg ~/ 8; // 24
+    final twoCh = Float32List(64 * 2 * cellLen);
+    for (var cell = 0; cell < 64; cell++) {
+      final r = cell ~/ 8, f = cell % 8;
+      final base = cell * 2 * cellLen;
+      twoCh.setRange(base, base + cellLen, cells64, cell * cellLen);
+      for (var y = 0; y < kCellSize; y++) {
+        final sy = r * segCell + (y * segCell) ~/ kCellSize;
+        for (var x = 0; x < kCellSize; x++) {
+          final sx = f * segCell + (x * segCell) ~/ kCellSize;
+          twoCh[base + cellLen + y * kCellSize + x] = mask[sy * seg + sx];
+        }
+      }
+    }
+
+    final input =
+        await OrtValue.fromList(twoCh, [64, 2, kCellSize, kCellSize]);
     try {
-      final outputs = await _session.run({_inputName: input});
+      final outputs = await _cls.run({_clsInput: input});
       final logitsValue = outputs.values.first;
       final flat = (await logitsValue.asFlattenedList()).cast<num>();
       for (final v in outputs.values) {
@@ -94,27 +119,44 @@ class OnnxSquareClassifier {
             best = c;
           }
         }
-        // Softmax over the cell's logits; reused for both the winning-class
-        // confidence and the full per-class distribution legality repair needs.
         var sumExp = 0.0;
         for (var c = 0; c < n; c++) {
           sumExp += math.exp(flat[cell * n + c].toDouble() - bestVal);
         }
         final invSum = 1.0 / sumExp;
-        final confidence = invSum; // exp(bestVal - bestVal) == 1
         final probs = Float32List(n);
         for (var c = 0; c < n; c++) {
           probs[c] = math.exp(flat[cell * n + c].toDouble() - bestVal) * invSum;
         }
         classProbs.add(probs);
 
-        // Emptiness gate: a flat cell is empty whatever the CNN says.
         final empty =
             _cellStdDev(cells64, cell * cellLen, cellLen) < _emptyStdDev;
         labels.add(empty ? '' : kModelClasses[best]);
-        confidences.add(confidence);
+        confidences.add(invSum); // softmax of the winning class
       }
       return BoardClassification(labels, confidences, classProbs);
+    } finally {
+      await input.dispose();
+    }
+  }
+
+  /// Runs the segmenter and returns a [kSegSize]² mask in [0, 1] (sigmoid).
+  Future<Float32List> _segmentMask(Float32List segInput) async {
+    final input =
+        await OrtValue.fromList(segInput, [1, 1, kSegSize, kSegSize]);
+    try {
+      final outputs = await _seg.run({_segInput: input});
+      final out = outputs.values.first;
+      final flat = (await out.asFlattenedList()).cast<num>();
+      for (final v in outputs.values) {
+        await v.dispose();
+      }
+      final mask = Float32List(kSegSize * kSegSize);
+      for (var i = 0; i < mask.length; i++) {
+        mask[i] = 1.0 / (1.0 + math.exp(-flat[i].toDouble()));
+      }
+      return mask;
     } finally {
       await input.dispose();
     }
@@ -135,5 +177,8 @@ class OnnxSquareClassifier {
     return math.sqrt(sumSq / len);
   }
 
-  Future<void> dispose() => _session.close();
+  Future<void> dispose() async {
+    await _seg.close();
+    await _cls.close();
+  }
 }
