@@ -225,12 +225,15 @@ def _add_annotation(cell, work, rng):
     """Draw a monochrome annotation mark over an RGBA [cell].
 
     Models what a single 1/8-of-a-board cell actually sees of a hand-drawn
-    overlay. Crucially, printed move arrows are near-black with a SOLID filled
-    triangular head roughly the size and darkness of a piece — the exact thing
-    the classifier was hallucinating into pieces — so the head is a filled
-    polygon on a thick shaft, not a hairline barb. Also models thin zigzag
-    shafts and square-highlight rings. Returns a new composited RGBA image; the
-    caller keeps the original label.
+    overlay. Real printed annotations the classifier hallucinated into pieces:
+    - move arrows: near-black with a SOLID filled triangular head ~piece-sized,
+      on a thick shaft (not a hairline barb);
+    - the long thin shaft of such an arrow crossing empty squares end to end;
+    - bent / zigzag (routed) shafts;
+    - small star/asterisk or dot markers on a square;
+    - square-highlight boxes (and rings) around a square.
+    The caller keeps the original label, so the model learns to see through all
+    of these. Returns a new composited RGBA image.
     """
     overlay = Image.new("RGBA", (work, work), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -239,14 +242,36 @@ def _add_annotation(cell, work, rng):
     color = (ink, ink, ink, alpha)
     kind = rng.random()
 
-    if kind < 0.15:
-        # Square-highlight ring near the border.
+    if kind < 0.12:
+        # Square-highlight box or ring around the border.
         m = rng.randint(1, 4)
-        draw.ellipse([m, m, work - 1 - m, work - 1 - m],
-                     outline=color, width=rng.randint(2, 4))
+        wd = rng.randint(2, 4)
+        box = [m, m, work - 1 - m, work - 1 - m]
+        if rng.random() < 0.5:
+            draw.rectangle(box, outline=color, width=wd)
+        else:
+            draw.ellipse(box, outline=color, width=wd)
         return Image.alpha_composite(cell, overlay)
 
-    if kind < 0.32:
+    if kind < 0.24:
+        # Small marker: asterisk/star or filled dot near the centre.
+        cx = rng.uniform(0.35 * work, 0.65 * work)
+        cy = rng.uniform(0.35 * work, 0.65 * work)
+        if rng.random() < 0.55:
+            rad = rng.uniform(0.12 * work, 0.28 * work)
+            wd = rng.randint(2, 4)
+            rays = rng.choice((3, 4))     # 3 -> 6-point asterisk, 4 -> 8-point
+            for k in range(rays):
+                ang = math.pi * k / rays
+                dx, dy = math.cos(ang) * rad, math.sin(ang) * rad
+                draw.line([(cx - dx, cy - dy), (cx + dx, cy + dy)],
+                          fill=color, width=wd)
+        else:
+            rad = rng.uniform(0.08 * work, 0.18 * work)
+            draw.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], fill=color)
+        return Image.alpha_composite(cell, overlay)
+
+    if kind < 0.40:
         # Bent / zigzag shaft (a routed move arrow doubling back through the
         # cell — the "^" peak that was misread as a bishop). Thin, two segments,
         # usually no head.
@@ -256,6 +281,14 @@ def _add_annotation(cell, work, rng):
         b = _edge_point(work, rng)
         draw.line([a, mid, b], fill=color, width=rng.randint(2, 5),
                   joint="curve")
+        return Image.alpha_composite(cell, overlay)
+
+    if kind < 0.60:
+        # The long thin shaft of an arrow crossing the cell end to end (a cell
+        # in the middle of a multi-square arrow, e.g. a file-long shaft). No
+        # head — this is the part read as a stray rook/pawn.
+        draw.line([_edge_point(work, rng), _edge_point(work, rng)],
+                  fill=color, width=rng.randint(2, 6))
         return Image.alpha_composite(cell, overlay)
 
     # Arrow shaft. A cell sees either a slice crossing it (both ends on the
