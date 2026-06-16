@@ -26,6 +26,7 @@ class ExtractedBoard {
     required this.top,
     required this.size,
     required this.cells,
+    required this.segInput,
     required this.cropPng,
   });
 
@@ -33,6 +34,10 @@ class ExtractedBoard {
   final int top;
   final int size;
   final Float32List cells;
+
+  /// The whole inside-frame board, grayscale [kSegSize]², for the arrow
+  /// segmenter (the mask it produces is sliced into per-cell channels).
+  final Float32List segInput;
 
   /// PNG encoding of the located board region, cropped from the source image.
   final Uint8List cropPng;
@@ -44,11 +49,13 @@ List<ExtractedBoard> _extractFromImage(img.Image page) {
 
   final boards = <ExtractedBoard>[];
   for (final board in locator.locate(page)) {
-    final cells = sliceBoardCells(page, board);
+    final inner = cropInsideFrame(page, board);
+    final cells = sliceInner(inner);
     final packed = Float32List(64 * cellLen);
     for (var i = 0; i < 64; i++) {
       packed.setRange(i * cellLen, (i + 1) * cellLen, preprocessCell(cells[i]));
     }
+    final segInput = preprocessSegInput(inner);
     // Crop the board region (clamped to the image) and encode as PNG.
     final cw = (board.left + board.size > page.width)
         ? page.width - board.left
@@ -68,6 +75,7 @@ List<ExtractedBoard> _extractFromImage(img.Image page) {
       top: board.top,
       size: board.size,
       cells: packed,
+      segInput: segInput,
       cropPng: img.encodePng(crop),
     ));
   }

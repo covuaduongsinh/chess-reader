@@ -155,7 +155,7 @@ class SquareDataset(Dataset):
         # cell. The label is left unchanged, so the model learns these are NOT
         # pieces: an arrow on an empty square stays empty; an arrow over a piece
         # keeps that piece. Biased higher on empties — the failure mode we fix.
-        if rng.random() < (0.42 if not label else 0.22):
+        if rng.random() < (0.42 if not label else 0.33):
             cell = _add_annotation(cell, work, rng)
 
         img = cell.convert("L")
@@ -284,11 +284,20 @@ def _add_annotation(cell, work, rng):
         return Image.alpha_composite(cell, overlay)
 
     if kind < 0.60:
-        # The long thin shaft of an arrow crossing the cell end to end (a cell
-        # in the middle of a multi-square arrow, e.g. a file-long shaft). No
-        # head — this is the part read as a stray rook/pawn.
-        draw.line([_edge_point(work, rng), _edge_point(work, rng)],
-                  fill=color, width=rng.randint(2, 6))
+        # The long thin shaft of an arrow crossing the cell (a cell in the
+        # middle of a multi-square arrow). Often straight through the centre —
+        # a file-/diagonal-long shaft passing over a square or right through a
+        # piece on it (the part read as a stray rook, or that turned a pawn into
+        # a rook). Drawn here over whatever the cell already holds.
+        if rng.random() < 0.6:
+            ang = rng.uniform(0, math.pi)
+            cx = work / 2 + rng.uniform(-6, 6)
+            cy = work / 2 + rng.uniform(-6, 6)
+            dx, dy = math.cos(ang) * work, math.sin(ang) * work
+            a, b = (cx - dx, cy - dy), (cx + dx, cy + dy)
+        else:
+            a, b = _edge_point(work, rng), _edge_point(work, rng)
+        draw.line([a, b], fill=color, width=rng.randint(2, 6))
         return Image.alpha_composite(cell, overlay)
 
     # Arrow shaft. A cell sees either a slice crossing it (both ends on the

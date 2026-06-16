@@ -76,7 +76,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/square_classifier.onnx
+    - assets/models/arrow_seg.onnx
+    - assets/models/square_classifier2.onnx
 
   # To add assets to your application, add an assets section, like this:
   # assets:
