@@ -16,7 +16,62 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          const _SectionHeader('Appearance'),
+          ListTile(
+            title: const Text('Theme'),
+            trailing: SegmentedButton<ThemeMode>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                    value: ThemeMode.system,
+                    icon: Icon(Icons.brightness_auto),
+                    tooltip: 'Follow system'),
+                ButtonSegment(
+                    value: ThemeMode.light,
+                    icon: Icon(Icons.light_mode),
+                    tooltip: 'Light'),
+                ButtonSegment(
+                    value: ThemeMode.dark,
+                    icon: Icon(Icons.dark_mode),
+                    tooltip: 'Dark'),
+              ],
+              selected: {settings.themeMode},
+              onSelectionChanged: (s) => notifier.setThemeMode(s.first),
+            ),
+          ),
+          const Divider(),
           const _SectionHeader('Board'),
+          ListTile(
+            title: const Text('Board position'),
+            subtitle: const Text('Where the board sits beside the text'),
+            trailing: SegmentedButton<BoardPlacement>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                    value: BoardPlacement.auto,
+                    icon: Icon(Icons.auto_awesome),
+                    tooltip: 'Auto (adapts to screen)'),
+                ButtonSegment(
+                    value: BoardPlacement.left,
+                    icon: Icon(Icons.border_left),
+                    tooltip: 'Left'),
+                ButtonSegment(
+                    value: BoardPlacement.right,
+                    icon: Icon(Icons.border_right),
+                    tooltip: 'Right'),
+                ButtonSegment(
+                    value: BoardPlacement.top,
+                    icon: Icon(Icons.border_top),
+                    tooltip: 'Top'),
+                ButtonSegment(
+                    value: BoardPlacement.bottom,
+                    icon: Icon(Icons.border_bottom),
+                    tooltip: 'Bottom'),
+              ],
+              selected: {settings.boardPlacement},
+              onSelectionChanged: (s) => notifier.setBoardPlacement(s.first),
+            ),
+          ),
           ListTile(
             title: const Text('Piece set'),
             trailing: DropdownButton<PieceSet>(

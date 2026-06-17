@@ -153,6 +153,80 @@ Future<List<List<Uint8List?>>> epubChapterImages(String path) async {
   return result;
 }
 
+/// The bytes of the EPUB's cover image, or null if none can be found. Tries the
+/// OPF `<meta name="cover" content="ID">` pointer, then the guide
+/// `<reference type="cover">`, then the first image item in the manifest. A
+/// guide reference may point at an XHTML wrapper page, in which case its first
+/// `<img>` is used.
+Future<Uint8List?> epubCoverImage(String path) async {
+  try {
+    final bytes = await File(path).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    String readEntry(String name) => utf8.decode(
+        archive.findFile(name)!.content as List<int>,
+        allowMalformed: true);
+
+    final container = XmlDocument.parse(readEntry('META-INF/container.xml'));
+    final opfPath =
+        container.findAllElements('rootfile').first.getAttribute('full-path')!;
+    final opfDir = p.posix.dirname(opfPath);
+    final opf = XmlDocument.parse(readEntry(opfPath));
+
+    final manifest = <String, ({String href, String type})>{};
+    for (final item in opf.findAllElements('item')) {
+      final id = item.getAttribute('id');
+      final href = item.getAttribute('href');
+      if (id != null && href != null) {
+        manifest[id] =
+            (href: href, type: item.getAttribute('media-type') ?? '');
+      }
+    }
+
+    String? coverHref;
+    for (final meta in opf.findAllElements('meta')) {
+      if (meta.getAttribute('name') == 'cover') {
+        final id = meta.getAttribute('content');
+        if (id != null && manifest[id] != null) coverHref = manifest[id]!.href;
+        break;
+      }
+    }
+    if (coverHref == null) {
+      for (final ref in opf.findAllElements('reference')) {
+        if (ref.getAttribute('type') == 'cover') {
+          coverHref = ref.getAttribute('href');
+          break;
+        }
+      }
+    }
+    if (coverHref == null) {
+      for (final item in manifest.values) {
+        if (item.type.startsWith('image/')) {
+          coverHref = item.href;
+          break;
+        }
+      }
+    }
+    if (coverHref == null) return null;
+
+    final resolved = p.posix.normalize(p.posix.join(opfDir, coverHref));
+    final entry = archive.findFile(resolved);
+    if (entry == null) return null;
+    final lower = resolved.toLowerCase();
+    if (lower.endsWith('.xhtml') ||
+        lower.endsWith('.html') ||
+        lower.endsWith('.htm')) {
+      final doc = html_parser.parse(
+          utf8.decode(entry.content as List<int>, allowMalformed: true));
+      final src = doc.querySelector('img')?.attributes['src'];
+      return _resolveImageBytes(archive, p.posix.dirname(resolved), src);
+    }
+    return Uint8List.fromList(entry.content as List<int>);
+  } catch (_) {
+    return null;
+  }
+}
+
 const _blockTags = {'p', 'div', 'br', 'h1', 'h2', 'h3', 'li', 'td'};
 
 (String, List<({dom.Text node, int start})>) _collectText(dom.Element? root) {

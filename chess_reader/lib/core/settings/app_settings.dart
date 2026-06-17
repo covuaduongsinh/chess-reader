@@ -1,6 +1,12 @@
 import 'package:chessground/chessground.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Where the side board sits relative to the book pane. [auto] keeps the
+/// responsive default (side-by-side on wide screens, a collapsible bottom panel
+/// on phones); the rest force that arrangement on any screen size.
+enum BoardPlacement { auto, left, right, top, bottom }
 
 /// User preferences, persisted via SharedPreferences.
 class AppSettings {
@@ -11,6 +17,8 @@ class AppSettings {
     this.engineDepth = 30,
     this.textScale = 1.0,
     this.boardFraction = 0.4,
+    this.themeMode = ThemeMode.system,
+    this.boardPlacement = BoardPlacement.auto,
   });
 
   final PieceSet pieceSet;
@@ -26,6 +34,12 @@ class AppSettings {
   /// Fraction of the reader width given to the side board (wide layout).
   final double boardFraction;
 
+  /// Light / dark / follow-system app theme.
+  final ThemeMode themeMode;
+
+  /// How the board pane is arranged relative to the book pane.
+  final BoardPlacement boardPlacement;
+
   ChessboardColorScheme get boardColors =>
       boardThemes[boardThemeName] ?? ChessboardColorScheme.brown;
 
@@ -36,6 +50,8 @@ class AppSettings {
     int? engineDepth,
     double? textScale,
     double? boardFraction,
+    ThemeMode? themeMode,
+    BoardPlacement? boardPlacement,
   }) {
     return AppSettings(
       pieceSet: pieceSet ?? this.pieceSet,
@@ -44,6 +60,8 @@ class AppSettings {
       engineDepth: engineDepth ?? this.engineDepth,
       textScale: textScale ?? this.textScale,
       boardFraction: boardFraction ?? this.boardFraction,
+      themeMode: themeMode ?? this.themeMode,
+      boardPlacement: boardPlacement ?? this.boardPlacement,
     );
   }
 }
@@ -71,6 +89,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const _kDepth = 'engineDepth';
   static const _kTextScale = 'textScale';
   static const _kBoardFraction = 'boardFraction';
+  static const _kThemeMode = 'themeMode';
+  static const _kBoardPlacement = 'boardPlacement';
 
   SharedPreferences get _prefs => ref.read(sharedPrefsProvider);
 
@@ -87,6 +107,14 @@ class SettingsNotifier extends Notifier<AppSettings> {
       engineDepth: p.getInt(_kDepth) ?? 30,
       textScale: p.getDouble(_kTextScale) ?? 1.0,
       boardFraction: p.getDouble(_kBoardFraction) ?? 0.4,
+      themeMode: ThemeMode.values.firstWhere(
+        (m) => m.name == p.getString(_kThemeMode),
+        orElse: () => ThemeMode.system,
+      ),
+      boardPlacement: BoardPlacement.values.firstWhere(
+        (b) => b.name == p.getString(_kBoardPlacement),
+        orElse: () => BoardPlacement.auto,
+      ),
     );
   }
 
@@ -119,6 +147,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final clamped = fraction.clamp(0.25, 0.6);
     _prefs.setDouble(_kBoardFraction, clamped);
     state = state.copyWith(boardFraction: clamped);
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    _prefs.setString(_kThemeMode, mode.name);
+    state = state.copyWith(themeMode: mode);
+  }
+
+  void setBoardPlacement(BoardPlacement placement) {
+    _prefs.setString(_kBoardPlacement, placement.name);
+    state = state.copyWith(boardPlacement: placement);
   }
 }
 

@@ -11,7 +11,7 @@ The Flutter app lives in [`chess_reader/`](chess_reader/).
 ## Download
 
 **Windows:** download the installer from the latest release —
-[**chess_reader-setup-1.4.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.4.0/chess_reader-setup-1.4.0.exe)
+[**chess_reader-setup-1.5.0.exe**](https://github.com/alpinist-GH/chess-reader/releases/download/v1.5.0/chess_reader-setup-1.5.0.exe)
 ([all releases](https://github.com/alpinist-GH/chess-reader/releases/latest)).
 
 It's a per‑user install (no administrator rights needed). The installer is
@@ -38,13 +38,15 @@ Other platforms: build from source (see [Building](#building)).
   board**. Results are cached to disk so reopening is instant.
 - **Embedded Stockfish** — analyse any position fully offline (bundled engine on
   desktop, FFI on mobile).
-- **Library & export** — a home library of recent and already‑converted books,
-  plus export of a converted book to standalone HTML.
+- **Cover‑art library** — a home shelf of recent and already‑converted books
+  shown as a grid of their real cover pages (extracted from the PDF/EPUB), plus
+  export of a converted book to standalone HTML.
 - **Open in Lichess / Chess.com** — send the current position to the web for
   further analysis (optional; the app itself stays offline).
-- **Comfort** — resume where you left off, bookmarks, full‑text search
-  (figurine‑aware), table of contents, adaptive layout, a resizable board, and
-  configurable piece set / board theme / engine depth.
+- **Comfort** — a light / dark / system theme, resume where you left off,
+  bookmarks, full‑text search (figurine‑aware), table of contents, and a
+  resizable board you can place left, right, top or bottom of the text (or let
+  it adapt) — handy on phones. Configurable piece set / board theme / engine depth.
 
 ## How it works
 

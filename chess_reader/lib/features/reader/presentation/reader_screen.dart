@@ -224,7 +224,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
           final bookPane = _BookPane(path: bookPath);
 
           // No book open: full-width library home (no board chrome).
@@ -237,65 +236,93 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             ],
           );
 
-          if (wide) {
-            final total = constraints.maxWidth;
-            const handle = 10.0;
-            final fraction =
-                ref.watch(settingsProvider.select((s) => s.boardFraction));
-            final boardWidth = (total - handle) * fraction;
-            return Row(
-              children: [
-                SizedBox(width: total - handle - boardWidth, child: bookPane),
-                _ResizeHandle(
-                  onDelta: (dx) => ref
-                      .read(settingsProvider.notifier)
-                      .setBoardFraction(fraction - dx / total),
+          final placement =
+              ref.watch(settingsProvider.select((s) => s.boardPlacement));
+
+          // Auto: side-by-side on wide screens, collapsible bottom panel on
+          // phones. Explicit placements force their arrangement everywhere.
+          if (placement == BoardPlacement.auto) {
+            return constraints.maxWidth >= 900
+                ? _split(constraints, BoardPlacement.right, bookPane, boardPane)
+                : _narrowCollapsible(constraints, bookPane, boardPane);
+          }
+          return _split(constraints, placement, bookPane, boardPane);
+        },
+      ),
+    );
+  }
+
+  /// A resizable two-pane split with the board on the [placement] side.
+  Widget _split(BoxConstraints constraints, BoardPlacement placement,
+      Widget bookPane, Widget boardPane) {
+    final horizontal =
+        placement == BoardPlacement.left || placement == BoardPlacement.right;
+    final boardFirst =
+        placement == BoardPlacement.left || placement == BoardPlacement.top;
+    final total = horizontal ? constraints.maxWidth : constraints.maxHeight;
+    const handle = 10.0;
+    final fraction = ref.watch(settingsProvider.select((s) => s.boardFraction));
+    final boardExtent = (total - handle) * fraction;
+    final bookExtent = total - handle - boardExtent;
+
+    final board = SizedBox(
+      width: horizontal ? boardExtent : null,
+      height: horizontal ? null : boardExtent,
+      child: Padding(padding: const EdgeInsets.all(12), child: boardPane),
+    );
+    final book = SizedBox(
+      width: horizontal ? bookExtent : null,
+      height: horizontal ? null : bookExtent,
+      child: bookPane,
+    );
+    final divider = _ResizeHandle(
+      axis: horizontal ? Axis.horizontal : Axis.vertical,
+      // Dragging the handle towards the book pane grows the board.
+      onDelta: (d) => ref
+          .read(settingsProvider.notifier)
+          .setBoardFraction(fraction + (boardFirst ? d : -d) / total),
+    );
+
+    final children =
+        boardFirst ? [board, divider, book] : [book, divider, board];
+    return horizontal
+        ? Row(children: children)
+        : Column(children: children);
+  }
+
+  /// Phone default: book fills the screen with a toggleable bottom board panel.
+  Widget _narrowCollapsible(
+      BoxConstraints constraints, Widget bookPane, Widget boardPane) {
+    return Column(
+      children: [
+        Expanded(child: bookPane),
+        Material(
+          elevation: 8,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InkWell(
+                onTap: () => setState(
+                    () => _boardVisibleNarrow = !_boardVisibleNarrow),
+                child: SizedBox(
+                  height: 32,
+                  child: Icon(_boardVisibleNarrow
+                      ? Icons.keyboard_arrow_down
+                      : Icons.keyboard_arrow_up),
                 ),
+              ),
+              if (_boardVisibleNarrow)
                 SizedBox(
-                  width: boardWidth,
+                  height: constraints.maxHeight * 0.5,
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: boardPane,
                   ),
                 ),
-              ],
-            );
-          }
-
-          // Narrow: book fills, board is a toggleable bottom panel.
-          return Column(
-            children: [
-              Expanded(child: bookPane),
-              Material(
-                elevation: 8,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    InkWell(
-                      onTap: () => setState(
-                          () => _boardVisibleNarrow = !_boardVisibleNarrow),
-                      child: SizedBox(
-                        height: 32,
-                        child: Icon(_boardVisibleNarrow
-                            ? Icons.keyboard_arrow_down
-                            : Icons.keyboard_arrow_up),
-                      ),
-                    ),
-                    if (_boardVisibleNarrow)
-                      SizedBox(
-                        height: constraints.maxHeight * 0.5,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: boardPane,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
             ],
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -330,29 +357,39 @@ class _ViewToggle extends ConsumerWidget {
   }
 }
 
-/// Draggable divider between the book pane and the side board.
+/// Draggable divider between the book pane and the board. [axis] is the axis
+/// the two panes are arranged along: horizontal for a Row (drag left/right),
+/// vertical for a Column (drag up/down).
 class _ResizeHandle extends StatelessWidget {
-  const _ResizeHandle({required this.onDelta});
-  final void Function(double dx) onDelta;
+  const _ResizeHandle({required this.axis, required this.onDelta});
+  final Axis axis;
+  final void Function(double delta) onDelta;
 
   @override
   Widget build(BuildContext context) {
+    final horizontal = axis == Axis.horizontal;
+    final bar = Container(
+      width: horizontal ? 4 : 32,
+      height: horizontal ? 32 : 4,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.outlineVariant,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
     return MouseRegion(
-      cursor: SystemMouseCursors.resizeLeftRight,
+      cursor: horizontal
+          ? SystemMouseCursors.resizeLeftRight
+          : SystemMouseCursors.resizeUpDown,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (d) => onDelta(d.delta.dx),
+        onHorizontalDragUpdate:
+            horizontal ? (d) => onDelta(d.delta.dx) : null,
+        onVerticalDragUpdate:
+            horizontal ? null : (d) => onDelta(d.delta.dy),
         child: SizedBox(
-          width: 10,
-          child: Center(
-            child: Container(
-              width: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
+          width: horizontal ? 10 : double.infinity,
+          height: horizontal ? double.infinity : 10,
+          child: Center(child: bar),
         ),
       ),
     );
