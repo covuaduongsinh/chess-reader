@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../reader/data/book_conversion.dart';
 import '../reader/state/book_providers.dart';
+import 'book_cover.dart';
 
 /// A standalone screen listing every book that has been converted (cached on
 /// disk). Each opens instantly; the cache entry can be deleted.
@@ -45,43 +46,35 @@ class _ConvertedLibraryScreenState
               ),
             );
           }
-          return ListView.separated(
+          return GridView.builder(
+            padding: const EdgeInsets.all(16),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 150,
+              childAspectRatio: 0.62,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
             itemCount: books.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final book = books[i];
               final exists = File(book.path).existsSync();
-              return ListTile(
-                leading: Icon(book.format == 'epub'
-                    ? Icons.menu_book
-                    : Icons.picture_as_pdf),
-                title: Text(book.title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(
-                  exists ? book.path : 'File moved or deleted',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: exists
-                      ? null
-                      : const TextStyle(color: Colors.redAccent),
-                ),
-                trailing: IconButton(
+              return BookCoverTile(
+                path: book.path,
+                title: book.title,
+                isEpub: book.format == 'epub',
+                enabled: exists,
+                onTap: () {
+                  ref.read(openedBookProvider.notifier).open(book.path);
+                  Navigator.of(context).pop();
+                },
+                trailing: CoverOverlayButton(
+                  icon: Icons.delete_outline,
                   tooltip: 'Delete saved conversion',
-                  icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
                     await deleteCachedConversion(book.path);
                     _refresh();
                   },
                 ),
-                enabled: exists,
-                onTap: exists
-                    ? () {
-                        ref
-                            .read(openedBookProvider.notifier)
-                            .open(book.path);
-                        Navigator.of(context).pop();
-                      }
-                    : null,
               );
             },
           );
