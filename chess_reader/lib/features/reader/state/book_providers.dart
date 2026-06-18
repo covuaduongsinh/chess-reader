@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/persistence/library_store.dart';
 import '../../../core/state/game_session.dart';
+import '../../library/book_import.dart';
 import '../data/page_moves_service.dart';
 import '../domain/move_resolver.dart';
 import 'reader_nav.dart';
@@ -16,10 +17,14 @@ class OpenedBook extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void open(String path) {
-    ref.read(libraryStoreProvider.notifier).recordOpened(path);
+  Future<void> open(String path) async {
+    // On mobile this copies a freshly-picked book into stable app storage and
+    // returns the local path (a recent-book reopen is already local); on
+    // desktop it returns [path] unchanged.
+    final localPath = await importBook(path);
+    ref.read(libraryStoreProvider.notifier).recordOpened(localPath);
     _resetReadingState();
-    state = path;
+    state = localPath;
   }
 
   void close() {

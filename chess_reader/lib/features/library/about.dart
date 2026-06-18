@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// App version shown in the About box. Keep in sync with pubspec `version`.
-const String kAppVersion = '1.5.0';
+const String kAppVersion = '1.5.2';
 
 /// Shows the About dialog: what the app does, its license, and author.
 /// The dialog's built-in "View licenses" button lists all bundled
