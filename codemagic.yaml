@@ -32,9 +32,19 @@ workflows:
         bundle_identifier: com.alpinist.chessReader
       vars:
         FLUTTER_PROJECT: chess_reader
+        BUNDLE_ID: com.alpinist.chessReader
     scripts:
       - name: Set up code signing
         script: |
+          # Create the distribution certificate + App Store provisioning profile
+          # (and register the bundle ID if needed) via the App Store Connect API
+          # key, then apply them to the Xcode project. --create makes this work
+          # on the very first build when no profile exists yet.
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
           xcode-project use-profiles
       - name: Flutter pub get
         script: |
