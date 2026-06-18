@@ -27,9 +27,10 @@ workflows:
       app_store_connect: Codemagic
     environment:
       flutter: stable
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.alpinist.chessReader
+      # NOTE: no `ios_signing:` block here on purpose. That block enables
+      # Codemagic's *automatic* signing, which only FETCHES existing profiles
+      # and fails with "no matching profiles found" on a fresh account. We do
+      # signing manually below so we can pass --create.
       vars:
         FLUTTER_PROJECT: chess_reader
         BUNDLE_ID: com.alpinist.chessReader
