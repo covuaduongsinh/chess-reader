@@ -4,6 +4,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/persistence/library_store.dart';
 import '../../../core/settings/app_settings.dart';
@@ -120,6 +122,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _exportConverted(String path) async {
     final messenger = ScaffoldMessenger.of(context);
+    // Captured before any await for the iPad share popover anchor (and to keep
+    // the async gap clear of BuildContext use).
+    final shareOrigin = _shareOrigin();
     messenger.showSnackBar(
         const SnackBar(content: Text('Preparing export…')));
     try {
@@ -127,10 +132,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final chapters = _isEpub(path)
           ? (await loadEpubBook(path, diagrams: conversion)).chapters
           : buildPdfChapters(conversion);
-      final html =
-          buildExportHtml(p.basenameWithoutExtension(path), chapters);
+      final title = p.basenameWithoutExtension(path);
+      final html = buildExportHtml(title, chapters);
+      final fileName = '$title.html';
+
+      if (Platform.isIOS || Platform.isAndroid) {
+        // Mobile has no "save file" dialog, so file_selector's getSaveLocation
+        // can't return a writable path (it fails with a "set path" error).
+        // Instead write to a temp file and hand it to the system share sheet,
+        // letting the user save it to Files/iCloud or send it onward.
+        final file = File(p.join((await getTemporaryDirectory()).path, fileName));
+        await file.writeAsString(html);
+        await SharePlus.instance.share(ShareParams(
+          files: [XFile(file.path, mimeType: 'text/html')],
+          subject: title,
+          sharePositionOrigin: shareOrigin,
+        ));
+        return;
+      }
+
       final location = await getSaveLocation(
-        suggestedName: '${p.basenameWithoutExtension(path)}.html',
+        suggestedName: fileName,
         acceptedTypeGroups: const [
           XTypeGroup(label: 'HTML', extensions: ['html']),
         ],
@@ -142,6 +164,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
+  }
+
+  /// Anchor rect for the iPad share popover; null on other targets (where the
+  /// share sheet is a full-screen modal that ignores it).
+  Rect? _shareOrigin() {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   @override
