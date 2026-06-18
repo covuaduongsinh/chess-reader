@@ -42,8 +42,13 @@ workflows:
           # key, then apply them to the Xcode project. --create makes this work
           # on the very first build when no profile exists yet.
           keychain initialize
+          # --certificate-key lets the CLI CREATE the iOS distribution
+          # certificate (not just the profile) when none exists yet, and reuse
+          # the same one on later builds. CERTIFICATE_PRIVATE_KEY is a secure
+          # env var you add in Codemagic (the RSA private key).
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
             --create
           keychain add-certificates
           xcode-project use-profiles
