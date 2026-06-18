@@ -3,6 +3,12 @@
 # The Flutter app lives in the chess_reader/ subfolder of this repo, so every
 # build step cd's into it first.
 #
+#   ios-testflight : builds a SIGNED .ipa and uploads it to TestFlight. Requires
+#                    a paid Apple Developer Program membership and an App Store
+#                    Connect API key added to Codemagic (Teams/User settings ->
+#                    Integrations -> App Store Connect) under the name shown in
+#                    `integrations.app_store_connect` below.
+#
 #   ios-sideload : builds an UNSIGNED .ipa. You sign it locally with a FREE
 #                  Apple ID using Sideloadly or AltStore on your Windows PC and
 #                  install it over USB. No Apple credentials are stored here, so
@@ -12,6 +18,44 @@
 #                  run it on; ignore it until then.
 
 workflows:
+  ios-testflight:
+    name: iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      # Must match the App Store Connect API key integration name in Codemagic.
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.alpinist.chessReader
+      vars:
+        FLUTTER_PROJECT: chess_reader
+    scripts:
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build signed IPA
+        script: |
+          cd "$FLUTTER_PROJECT"
+          # $PROJECT_BUILD_NUMBER is Codemagic's monotonic per-project counter,
+          # so each upload to TestFlight gets a unique, increasing build number.
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - $FLUTTER_PROJECT/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
   ios-sideload:
     name: iOS unsigned (sideload)
     instance_type: mac_mini_m2
