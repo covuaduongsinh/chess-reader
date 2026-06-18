@@ -1,0 +1,66 @@
+# Codemagic CI config for Chess Reader.
+#
+# The Flutter app lives in the chess_reader/ subfolder of this repo, so every
+# build step cd's into it first.
+#
+#   ios-sideload : builds an UNSIGNED .ipa. You sign it locally with a FREE
+#                  Apple ID using Sideloadly or AltStore on your Windows PC and
+#                  install it over USB. No Apple credentials are stored here, so
+#                  no paid Developer Program is required. (7-day app expiry.)
+#
+#   macos-dmg    : builds an unsigned .dmg. Only useful once you have a Mac to
+#                  run it on; ignore it until then.
+
+workflows:
+  ios-sideload:
+    name: iOS unsigned (sideload)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        FLUTTER_PROJECT: chess_reader
+    scripts:
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build unsigned .app
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter build ios --release --no-codesign
+      - name: Package unsigned IPA
+        script: |
+          cd "$FLUTTER_PROJECT/build/ios/iphoneos"
+          rm -rf Payload
+          mkdir Payload
+          cp -R Runner.app Payload/
+          zip -r "$CM_BUILD_DIR/chess_reader-unsigned.ipa" Payload
+    artifacts:
+      - chess_reader-unsigned.ipa
+
+  macos-dmg:
+    name: macOS DMG (unsigned)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      vars:
+        FLUTTER_PROJECT: chess_reader
+    scripts:
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build macOS
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter build macos --release
+      - name: Package DMG
+        script: |
+          cd "$FLUTTER_PROJECT"
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          hdiutil create -volname "Chess Reader" -srcfolder "$APP" \
+            -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
+    artifacts:
+      - chess_reader.dmg
