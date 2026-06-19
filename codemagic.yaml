@@ -57,6 +57,13 @@ workflows:
             --create
           keychain add-certificates
           xcode-project use-profiles
+      - name: Use CocoaPods instead of Swift Package Manager
+        script: |
+          # ONNX Runtime's SPM framework ships with a missing MinimumOSVersion,
+          # which fails App Store validation (ITMS-90208). The multistockfish
+          # plugins don't support SPM either. Disabling SPM makes Flutter
+          # integrate every iOS plugin via CocoaPods, which avoids both issues.
+          flutter config --no-enable-swift-package-manager
       - name: Flutter pub get
         script: |
           cd "$FLUTTER_PROJECT"
