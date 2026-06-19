@@ -31,6 +31,11 @@ workflows:
       # Codemagic's *automatic* signing, which only FETCHES existing profiles
       # and fails with "no matching profiles found" on a fresh account. We do
       # signing manually below so we can pass --create.
+      groups:
+        # Variable group (created in the Codemagic UI) that holds the secure
+        # CERTIFICATE_PRIVATE_KEY. It is only injected into the build if listed
+        # here. The key itself is NEVER stored in this file.
+        - appstore
       vars:
         FLUTTER_PROJECT: chess_reader
         BUNDLE_ID: com.alpinist.chessReader
