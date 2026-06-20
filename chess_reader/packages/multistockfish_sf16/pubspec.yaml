@@ -1,0 +1,33 @@
+name: multistockfish_sf16
+description: "Stockfish 16 C++ library for chess and chess 960."
+version: 0.1.1
+repository: https://github.com/lichess-org/dart-multistockfish.git
+homepage: https://github.com/lichess-org/dart-multistockfish.git
+
+# Vendored fork of multistockfish_sf16 0.1.1 (lichess-org/dart-multistockfish).
+# Only change vs upstream: a macOS native build (macos/) so the FFI Stockfish
+# engine also runs on macOS — needed for a sandboxed Mac App Store build, where
+# spawning an external Stockfish binary is forbidden. The android/ and ios/
+# trees are verbatim copies of upstream, so those platforms are unaffected.
+# Pulled in via `dependency_overrides` in the app's pubspec.yaml.
+#
+# `resolution: workspace` is intentionally removed: as a plain path dependency
+# this package is not part of a pub workspace.
+
+environment:
+  sdk: ^3.7.0
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true

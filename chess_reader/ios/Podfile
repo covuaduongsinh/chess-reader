@@ -28,11 +28,32 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# onnxruntime-objc / onnxruntime-c vendor statically linked binaries, which
+# CocoaPods refuses to place inside a dynamic framework ("transitive
+# dependencies that include statically linked binaries") and which trips App
+# Store validation (ITMS-90208) when embedded as a standalone framework.
+#
+# We can't make linkage static globally, though: multistockfish_sf16 (the FFI
+# Stockfish engine) is opened at runtime with
+# `DynamicLibrary.open('multistockfish_sf16.framework/...')`, so it MUST be a
+# dynamic framework or the engine fails with "Failed to load dynamic library".
+#
+# So we keep the default dynamic `use_frameworks!` and force ONLY the
+# onnxruntime pods to build as static libraries (they then link into the
+# flutter_onnxruntime framework). Everything else — including the
+# multistockfish engines — stays a dynamic framework.
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if pod.name.start_with?('onnxruntime')
+      def pod.build_type
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
+
 target 'Runner' do
-  # Use static linkage: onnxruntime-objc / onnxruntime-c ship as statically
-  # linked binaries, which conflicts with the default dynamic `use_frameworks!`
-  # ("transitive dependencies that include statically linked binaries").
-  use_frameworks! :linkage => :static
+  use_frameworks!
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
