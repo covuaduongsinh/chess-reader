@@ -151,12 +151,22 @@ workflows:
   # Developer ID-signed + notarized .dmg (direct download, NOT App Store).
   #
   # One-time setup before the first run:
-  #   * Same App Store Connect API key integration (`Codemagic`) and `appstore`
-  #     variable group (CERTIFICATE_PRIVATE_KEY) the iOS workflow already uses.
-  #   * Apple notarization needs a Developer ID Application certificate. The API
-  #     key can create one (account-wide; Apple caps how many you may hold). If
-  #     you already created one, export it as a .p12 and import it instead of the
-  #     `create-certificate` line below to avoid hitting that cap.
+  #   * Same App Store Connect API key integration (`Codemagic`) the iOS
+  #     workflow uses (for notarization).
+  #   * A Developer ID Application certificate CANNOT be created by the API key —
+  #     Apple restricts that to the Account Holder via the portal (the API
+  #     returns 403). So create it once, export it as a .p12, and add it to the
+  #     `appstore` variable group in Codemagic as two SECURE vars:
+  #       DEVID_CERTIFICATE          = base64 of the .p12
+  #       DEVID_CERTIFICATE_PASSWORD = the .p12 export password
+  #     How to make the .p12 (on your Mac, signed in as the Account Holder):
+  #       1. Keychain Access -> Certificate Assistant -> Request a Certificate
+  #          From a Certificate Authority -> save a CSR to disk.
+  #       2. developer.apple.com -> Certificates -> + -> "Developer ID
+  #          Application" -> upload the CSR -> download the .cer.
+  #       3. Double-click the .cer to install, then in Keychain Access right-
+  #          click it -> Export -> .p12 (set a password).
+  #       4. base64 -i devid.p12 | pbcopy  -> paste as DEVID_CERTIFICATE.
   # ---------------------------------------------------------------------------
   macos-devid:
     name: macOS Developer ID (notarized DMG)
@@ -174,19 +184,12 @@ workflows:
       - name: Set up Developer ID signing
         script: |
           keychain initialize
-          # Create (or reuse) a Developer ID Application certificate and import
-          # it into the build keychain. `|| true` so a "already exists" / cap
-          # error doesn't fail the build — `list-certificates --save` then pulls
-          # the existing one.
-          app-store-connect certificates create \
-            --type DEVELOPER_ID_APPLICATION \
-            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
-            --save || true
-          app-store-connect certificates list \
-            --type DEVELOPER_ID_APPLICATION \
-            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
-            --save
-          keychain add-certificates
+          # Import the Developer ID Application .p12 supplied via env vars
+          # (Apple won't let the API create this cert — Account Holder only).
+          echo "$DEVID_CERTIFICATE" | base64 --decode > /tmp/devid.p12
+          keychain add-certificates \
+            --certificate /tmp/devid.p12 \
+            --certificate-password "$DEVID_CERTIFICATE_PASSWORD"
       - name: Use CocoaPods instead of Swift Package Manager
         script: |
           flutter config --no-enable-swift-package-manager
