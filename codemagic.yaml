@@ -331,33 +331,41 @@ workflows:
           # pair it with the public cert already in the keychain to rebuild a
           # .p12 we can import unrestricted.
           KEYCHAIN=$(security default-keychain | tr -d ' "')
-          echo "keychain: $KEYCHAIN"
-          security unlock-keychain -p ci "$KEYCHAIN" \
-            && echo "unlock: OK" || echo "unlock: FAILED (password not 'ci')"
-          security set-keychain-settings "$KEYCHAIN"   # disable auto-lock
-          printf '%s\n' "$CERTIFICATE_PRIVATE_KEY" > /tmp/installer_key.pem
-          security find-certificate -c "3rd Party Mac Developer Installer" \
-            -p "$KEYCHAIN" > /tmp/installer_cert.pem
-          openssl pkcs12 -export -inkey /tmp/installer_key.pem \
-            -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci \
-            || openssl pkcs12 -export -legacy -inkey /tmp/installer_key.pem \
-            -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci
-          security import /tmp/installer.p12 -k "$KEYCHAIN" -P ci -A \
-            -T /usr/bin/productbuild -T /usr/bin/productsign \
-            && echo "import -A: OK" || echo "import -A: FAILED (may already exist)"
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN" \
-            && echo "partition-list: OK" || echo "partition-list: FAILED"
-          echo "--- identities ---"; security find-identity -v "$KEYCHAIN"
+          # All keychain setup is tee'd to a file so it can be re-printed at the
+          # very end on failure (the inline copy scrolls off above the ~20-min
+          # archive). 2>&1 on each command captures its real error text.
+          {
+            echo "keychain: $KEYCHAIN"
+            security unlock-keychain -p ci "$KEYCHAIN" 2>&1 \
+              && echo "unlock: OK" || echo "unlock: FAILED (password not 'ci')"
+            security set-keychain-settings "$KEYCHAIN"   # disable auto-lock
+            printf '%s\n' "$CERTIFICATE_PRIVATE_KEY" > /tmp/installer_key.pem
+            security find-certificate -c "3rd Party Mac Developer Installer" \
+              -p "$KEYCHAIN" > /tmp/installer_cert.pem 2>&1
+            echo "key first line:  $(head -1 /tmp/installer_key.pem)"
+            echo "cert first line: $(head -1 /tmp/installer_cert.pem)"
+            openssl pkcs12 -export -inkey /tmp/installer_key.pem \
+              -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci 2>&1 \
+              || openssl pkcs12 -export -legacy -inkey /tmp/installer_key.pem \
+              -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci 2>&1
+            echo "p12: $(ls -l /tmp/installer.p12 2>&1)"
+            security import /tmp/installer.p12 -k "$KEYCHAIN" -P ci -A \
+              -T /usr/bin/productbuild -T /usr/bin/productsign 2>&1 \
+              && echo "import -A: OK" || echo "import -A: FAILED"
+            security set-key-partition-list \
+              -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN" 2>&1 \
+              && echo "partition-list: OK" || echo "partition-list: FAILED"
+            echo "--- identities ---"; security find-identity -v "$KEYCHAIN"
+          } 2>&1 | tee /tmp/keychain_diag.txt
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
             -exportPath build/macos/export || {
-              echo "=== exportArchive failed — keychain state + distribution logs ==="
-              echo "--- identities (re-print) ---"; security find-identity -v "$KEYCHAIN"
               D=$(ls -dt /var/folders/*/*/T/Runner_*.xcdistributionlogs 2>/dev/null | head -1)
-              echo "logdir: $D"
-              cat "$D"/*.log 2>/dev/null
+              echo "logdir: $D"; cat "$D"/*.log 2>/dev/null
+              echo ""
+              echo "================ KEYCHAIN DIAG (tail) ================"
+              cat /tmp/keychain_diag.txt
               exit 1
             }
     artifacts:
