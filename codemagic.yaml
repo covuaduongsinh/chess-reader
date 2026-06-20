@@ -276,12 +276,6 @@ workflows:
             --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
             --save
           keychain add-certificates
-          # Grant non-interactive access to the imported private keys for the
-          # Apple signing tools (codesign works without this, but productbuild —
-          # which signs the .pkg with the installer key — needs apple-tool:).
-          KEYCHAIN=$(security default-keychain | tr -d ' "')
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN"
           xcode-project use-profiles
       - name: Use CocoaPods instead of Swift Package Manager
         script: |
@@ -326,6 +320,20 @@ workflows:
           plutil -insert installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST" 2>/dev/null \
             || plutil -replace installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST"
           echo "--- export_options.plist ---"; plutil -p "$EOPLIST"
+          # productbuild (run inside exportArchive) signs the .pkg with the
+          # installer key and dies with CSSMERR_CSP_NO_USER_INTERACTION unless
+          # that key grants non-interactive access. Apply it right before
+          # export, and echo each result so we can see what actually worked.
+          KEYCHAIN=$(security default-keychain | tr -d ' "')
+          echo "keychain: $KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN" \
+            && echo "unlock: OK" || echo "unlock: FAILED (password not 'ci')"
+          # Never auto-lock mid-build.
+          security set-keychain-settings "$KEYCHAIN"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN" \
+            && echo "partition-list: OK" || echo "partition-list: FAILED"
+          echo "--- identities ---"; security find-identity -v "$KEYCHAIN"
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
