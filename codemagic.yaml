@@ -315,10 +315,23 @@ workflows:
           plutil -insert installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST" 2>/dev/null \
             || plutil -replace installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST"
           echo "--- export_options.plist ---"; plutil -p "$EOPLIST"
+          # Best-effort: let the productbuild that exportArchive runs internally
+          # use the installer private key without a UI prompt. Codemagic's
+          # keychain add-certificates usually sets this, but Xcode 26's
+          # productbuild can still hit CSSMERR_CSP_NO_USER_INTERACTION.
+          KEYCHAIN=$(security default-keychain | tr -d ' "')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "" "$KEYCHAIN" 2>/dev/null || true
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
-            -exportPath build/macos/export
+            -exportPath build/macos/export || {
+              echo "=== exportArchive failed — dumping Xcode distribution logs ==="
+              D=$(ls -dt /var/folders/*/*/T/Runner_*.xcdistributionlogs 2>/dev/null | head -1)
+              echo "logdir: $D"
+              cat "$D"/*.log 2>/dev/null
+              exit 1
+            }
     artifacts:
       - $FLUTTER_PROJECT/build/macos/export/*.pkg
       - /tmp/xcodebuild_logs/*.log
