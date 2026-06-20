@@ -14,8 +14,18 @@
 #                  install it over USB. No Apple credentials are stored here, so
 #                  no paid Developer Program is required. (7-day app expiry.)
 #
-#   macos-dmg    : builds an unsigned .dmg. Only useful once you have a Mac to
-#                  run it on; ignore it until then.
+#   macos-dmg    : builds an UNSIGNED .dmg. Quick local testing only; Gatekeeper
+#                  will warn on other machines.
+#
+#   macos-devid  : builds a Developer ID-signed + Apple-NOTARIZED .dmg for direct
+#                  download (no App Store). No Gatekeeper warning. Reuses the
+#                  `appstore` group (CERTIFICATE_PRIVATE_KEY) + App Store Connect
+#                  integration. One-time setup: see the comments in the workflow.
+#
+#   macos-appstore : builds a Mac App Store-signed .pkg and uploads it to App
+#                    Store Connect. Requires the macOS platform enabled on the
+#                    `com.alpinist.chessReader` app record and App Sandbox (already
+#                    on in Release.entitlements). See the workflow comments.
 
 workflows:
   ios-testflight:
@@ -136,3 +146,150 @@ workflows:
             -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
     artifacts:
       - chess_reader.dmg
+
+  # ---------------------------------------------------------------------------
+  # Developer ID-signed + notarized .dmg (direct download, NOT App Store).
+  #
+  # One-time setup before the first run:
+  #   * Same App Store Connect API key integration (`Codemagic`) and `appstore`
+  #     variable group (CERTIFICATE_PRIVATE_KEY) the iOS workflow already uses.
+  #   * Apple notarization needs a Developer ID Application certificate. The API
+  #     key can create one (account-wide; Apple caps how many you may hold). If
+  #     you already created one, export it as a .p12 and import it instead of the
+  #     `create-certificate` line below to avoid hitting that cap.
+  # ---------------------------------------------------------------------------
+  macos-devid:
+    name: macOS Developer ID (notarized DMG)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      groups:
+        - appstore
+      vars:
+        FLUTTER_PROJECT: chess_reader
+    scripts:
+      - name: Set up Developer ID signing
+        script: |
+          keychain initialize
+          # Create (or reuse) a Developer ID Application certificate and import
+          # it into the build keychain. `|| true` so a "already exists" / cap
+          # error doesn't fail the build — `list-certificates --save` then pulls
+          # the existing one.
+          app-store-connect certificates create \
+            --type DEVELOPER_ID_APPLICATION \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
+            --save || true
+          app-store-connect certificates list \
+            --type DEVELOPER_ID_APPLICATION \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
+            --save
+          keychain add-certificates
+      - name: Use CocoaPods instead of Swift Package Manager
+        script: |
+          flutter config --no-enable-swift-package-manager
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build and sign the app
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter build macos --release
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          # Re-sign every nested binary (frameworks, the multistockfish FFI
+          # framework, dylibs) and the app with the Developer ID cert + hardened
+          # runtime + timestamp — all required for notarization.
+          CERT=$(security find-identity -v -p codesigning \
+            | grep "Developer ID Application" | head -1 \
+            | sed -E 's/.*"(.*)"/\1/')
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements macos/Runner/Release.entitlements \
+            --sign "$CERT" "$APP"
+      - name: Notarize and package DMG
+        script: |
+          cd "$FLUTTER_PROJECT"
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          hdiutil create -volname "Chess Reader" -srcfolder "$APP" \
+            -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
+          # Notarize the .dmg with the App Store Connect API key (the integration
+          # injects APP_STORE_CONNECT_* env vars), then staple the ticket so it
+          # validates offline.
+          app-store-connect notarize "$CM_BUILD_DIR/chess_reader.dmg"
+          xcrun stapler staple "$CM_BUILD_DIR/chess_reader.dmg"
+    artifacts:
+      - chess_reader.dmg
+
+  # ---------------------------------------------------------------------------
+  # Mac App Store-signed .pkg, uploaded to App Store Connect.
+  #
+  # One-time setup before the first run:
+  #   * In App Store Connect, enable the macOS platform on the existing
+  #     `com.alpinist.chessReader` app (or create the macOS app record).
+  #   * App Sandbox is already enabled in macos/Runner/Release.entitlements.
+  #   * fetch-signing-files creates the Mac App Distribution cert + MAC_APP_STORE
+  #     profile; the .pkg also needs a Mac Installer Distribution cert (created
+  #     below).
+  # ---------------------------------------------------------------------------
+  macos-appstore:
+    name: macOS App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      groups:
+        - appstore
+      vars:
+        FLUTTER_PROJECT: chess_reader
+        BUNDLE_ID: com.alpinist.chessReader
+    scripts:
+      - name: Set up App Store signing
+        script: |
+          keychain initialize
+          # App-distribution cert + MAC_APP_STORE provisioning profile.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --platform MAC_OS \
+            --type MAC_APP_STORE \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
+            --create
+          # Installer cert used to sign the .pkg (separate from the app cert).
+          app-store-connect certificates create \
+            --type MAC_INSTALLER_DISTRIBUTION \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
+            --save || true
+          app-store-connect certificates list \
+            --type MAC_INSTALLER_DISTRIBUTION \
+            --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
+            --save
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Use CocoaPods instead of Swift Package Manager
+        script: |
+          flutter config --no-enable-swift-package-manager
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build, sign, and package .pkg
+        script: |
+          cd "$FLUTTER_PROJECT"
+          # use-profiles configured the project with the MAC_APP_STORE profile +
+          # Apple Distribution cert, so flutter build signs the .app correctly.
+          flutter build macos --release \
+            --build-number=$PROJECT_BUILD_NUMBER
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          INSTALLER_CERT=$(security find-identity -v \
+            | grep -E "Mac Developer Installer|Apple Distribution|Installer Distribution" \
+            | head -1 | sed -E 's/.*"(.*)"/\1/')
+          xcrun productbuild --component "$APP" /Applications \
+            --sign "$INSTALLER_CERT" "$CM_BUILD_DIR/chess_reader.pkg"
+    artifacts:
+      - chess_reader.pkg
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
