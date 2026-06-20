@@ -303,6 +303,18 @@ workflows:
           # we must NOT hardcode, its name changes per run) stays intact.
           plutil -replace method -string app-store-connect \
             /Users/builder/export_options.plist
+          # Pin the APP signing identity to "Apple Distribution". Otherwise,
+          # with both that and the "3rd Party Mac Developer Installer" cert in
+          # the keychain, exportArchive mis-selects the installer cert for the
+          # app and fails ("provisioning profile doesn't include signing
+          # certificate ...Installer..."). The installer cert is still used
+          # automatically to sign the .pkg.
+          /usr/libexec/PlistBuddy -c \
+            "Add :signingCertificate string 'Apple Distribution'" \
+            /Users/builder/export_options.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c \
+            "Set :signingCertificate 'Apple Distribution'" \
+            /Users/builder/export_options.plist
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
