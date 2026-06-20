@@ -53,6 +53,14 @@ dependencies:
   shared_preferences: ^2.5.5
   scrollable_positioned_list: ^0.3.8
 
+# Use a vendored fork of multistockfish_sf16 that adds a macOS native build,
+# so the FFI Stockfish engine runs on macOS too (required for a sandboxed Mac
+# App Store build). iOS/Android are unaffected — the fork's ios/ and android/
+# are verbatim copies of upstream 0.1.1. See packages/multistockfish_sf16.
+dependency_overrides:
+  multistockfish_sf16:
+    path: packages/multistockfish_sf16
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

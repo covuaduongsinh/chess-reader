@@ -1,0 +1,66 @@
+platform :osx, '14.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'ephemeral', 'Flutter-Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Flutter-Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_macos_podfile_setup
+
+# onnxruntime-objc / onnxruntime-c vendor statically linked binaries, which
+# CocoaPods refuses to place inside a dynamic framework ("transitive
+# dependencies that include statically linked binaries"). We can't make linkage
+# static globally, though: multistockfish_sf16 (the FFI Stockfish engine) is
+# opened at runtime with `DynamicLibrary.open('multistockfish_sf16.framework/
+# ...')`, so it MUST be a dynamic framework or the engine fails to load. So we
+# keep dynamic `use_frameworks!` and force the whole onnxruntime chain to
+# static libraries — onnxruntime-c / onnxruntime-objc (which vendor the static
+# binaries) AND flutter_onnxruntime itself, otherwise the dynamic
+# flutter_onnxruntime framework transitively depends on a static binary and
+# CocoaPods' verify_no_static_framework_transitive_dependencies rejects it.
+# Mirrors ios/Podfile.
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if pod.name.include?('onnxruntime')
+      def pod.build_type
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_macos_build_settings(target)
+  end
+end

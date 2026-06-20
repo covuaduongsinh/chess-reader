@@ -16,7 +16,10 @@ class EngineUnavailable implements Exception {
 }
 
 UciEngine createEngine() {
-  if (Platform.isAndroid || Platform.isIOS) {
+  // Mobile and macOS run Stockfish in-process via FFI (multistockfish). On
+  // macOS this is also what makes a sandboxed Mac App Store build possible,
+  // since the sandbox forbids spawning an external engine binary.
+  if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
     return FfiEngine();
   }
   final path = locateStockfish();

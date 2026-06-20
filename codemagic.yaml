@@ -14,8 +14,18 @@
 #                  install it over USB. No Apple credentials are stored here, so
 #                  no paid Developer Program is required. (7-day app expiry.)
 #
-#   macos-dmg    : builds an unsigned .dmg. Only useful once you have a Mac to
-#                  run it on; ignore it until then.
+#   macos-dmg    : builds an UNSIGNED .dmg. Quick local testing only; Gatekeeper
+#                  will warn on other machines.
+#
+#   macos-devid  : builds a Developer ID-signed + Apple-NOTARIZED .dmg for direct
+#                  download (no App Store). No Gatekeeper warning. Reuses the
+#                  `appstore` group (CERTIFICATE_PRIVATE_KEY) + App Store Connect
+#                  integration. One-time setup: see the comments in the workflow.
+#
+#   (Mac App Store) : NOT a CI workflow — the installer-signing step can't run on
+#                     a headless runner. Build + submit from Xcode on a Mac; see
+#                     the documented block where the macos-appstore workflow used
+#                     to be, below.
 
 workflows:
   ios-testflight:
@@ -136,3 +146,110 @@ workflows:
             -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
     artifacts:
       - chess_reader.dmg
+
+  # ---------------------------------------------------------------------------
+  # Developer ID-signed + notarized .dmg (direct download, NOT App Store).
+  #
+  # One-time setup before the first run:
+  #   * Same App Store Connect API key integration (`Codemagic`) the iOS
+  #     workflow uses (for notarization).
+  #   * A Developer ID Application certificate CANNOT be created by the API key —
+  #     Apple restricts that to the Account Holder via the portal (the API
+  #     returns 403). So create it once, export it as a .p12, and add it to the
+  #     `appstore` variable group in Codemagic as two SECURE vars:
+  #       DEVID_CERTIFICATE          = base64 of the .p12
+  #       DEVID_CERTIFICATE_PASSWORD = the .p12 export password
+  #     How to make the .p12 (on your Mac, signed in as the Account Holder):
+  #       1. Keychain Access -> Certificate Assistant -> Request a Certificate
+  #          From a Certificate Authority -> save a CSR to disk.
+  #       2. developer.apple.com -> Certificates -> + -> "Developer ID
+  #          Application" -> upload the CSR -> download the .cer.
+  #       3. Double-click the .cer to install, then in Keychain Access right-
+  #          click it -> Export -> .p12 (set a password).
+  #       4. base64 -i devid.p12 | pbcopy  -> paste as DEVID_CERTIFICATE.
+  # ---------------------------------------------------------------------------
+  macos-devid:
+    name: macOS Developer ID (notarized DMG)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      groups:
+        - appstore
+      vars:
+        FLUTTER_PROJECT: chess_reader
+    scripts:
+      - name: Set up Developer ID signing
+        script: |
+          keychain initialize
+          # Import the Developer ID Application .p12 supplied via env vars
+          # (Apple won't let the API create this cert — Account Holder only).
+          echo "$DEVID_CERTIFICATE" | base64 --decode > /tmp/devid.p12
+          keychain add-certificates \
+            --certificate /tmp/devid.p12 \
+            --certificate-password "$DEVID_CERTIFICATE_PASSWORD"
+      - name: Use CocoaPods instead of Swift Package Manager
+        script: |
+          flutter config --no-enable-swift-package-manager
+      - name: Flutter pub get
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter pub get
+      - name: Build and sign the app
+        script: |
+          cd "$FLUTTER_PROJECT"
+          flutter build macos --release
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          # Re-sign every nested binary (frameworks, the multistockfish FFI
+          # framework, dylibs) and the app with the Developer ID cert + hardened
+          # runtime + timestamp — all required for notarization.
+          CERT=$(security find-identity -v -p codesigning \
+            | grep "Developer ID Application" | head -1 \
+            | sed -E 's/.*"(.*)"/\1/')
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements macos/Runner/Release.entitlements \
+            --sign "$CERT" "$APP"
+      - name: Notarize and package DMG
+        script: |
+          cd "$FLUTTER_PROJECT"
+          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          hdiutil create -volname "Chess Reader" -srcfolder "$APP" \
+            -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
+          # Notarize the .dmg with the App Store Connect API key (the integration
+          # injects APP_STORE_CONNECT_* env vars), then staple the ticket so it
+          # validates offline.
+          app-store-connect notarize "$CM_BUILD_DIR/chess_reader.dmg"
+          xcrun stapler staple "$CM_BUILD_DIR/chess_reader.dmg"
+    artifacts:
+      - chess_reader.dmg
+
+  # ---------------------------------------------------------------------------
+  # Mac App Store: build + submit from Xcode on a Mac, NOT from CI.
+  #
+  # Why this isn't automated here: the Mac App Store .pkg must be signed with the
+  # "3rd Party Mac Developer Installer" key via productbuild. On Codemagic's
+  # headless runner (no GUI login session) productbuild can't access that key and
+  # always dies with CSSMERR_CSP_NO_USER_INTERACTION, regardless of keychain
+  # password / set-key-partition-list / re-importing the key with `-A` (all
+  # confirmed not to help — the keychain itself was correctly configured). App
+  # code-signing, archiving and the MAC_APP_STORE provisioning all work on CI;
+  # only the final installer signature needs an interactive session.
+  #
+  # So produce the .pkg from your Mac, where the keychain can grant access:
+  #   0. App Store Connect: enable the macOS platform on the com.alpinist.chessReader
+  #      app record. App Sandbox + file access are set in Release.entitlements;
+  #      LSApplicationCategoryType is set in Info.plist.
+  #   1. git checkout this branch; cd chess_reader
+  #   2. flutter pub get && flutter build macos --release
+  #   3. open macos/Runner.xcworkspace   (Xcode signed in with the Apple ID)
+  #   4. Runner scheme, "Any Mac", Release, Signing Team = 8CZSU66MX5
+  #   5. Product -> Archive
+  #   6. Organizer -> Distribute App -> App Store Connect -> Upload
+  #      (click "Always Allow" on the keychain prompt — the dialog CI can't show)
+  #
+  # The unsigned `macos-dmg` workflow above still builds the app on CI as a
+  # compile check. If Codemagic ever ships a fix for non-interactive productbuild,
+  # this can be revived from git history (branch engine-ffi-macos).
+  # ---------------------------------------------------------------------------
