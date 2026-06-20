@@ -239,7 +239,9 @@ workflows:
   macos-appstore:
     name: macOS App Store
     instance_type: mac_mini_m2
-    max_build_duration: 60
+    # 120 min: the archive recompiles the native engines (Stockfish + ORT) that
+    # `flutter build --config-only` deliberately skips.
+    max_build_duration: 120
     integrations:
       app_store_connect: Codemagic
     environment:
@@ -277,21 +279,30 @@ workflows:
         script: |
           cd "$FLUTTER_PROJECT"
           flutter pub get
-      - name: Build, sign, and package .pkg
+      - name: Build and export App Store .pkg
         script: |
           cd "$FLUTTER_PROJECT"
-          # use-profiles configured the project with the MAC_APP_STORE profile +
-          # Apple Distribution cert, so flutter build signs the .app correctly.
-          flutter build macos --release \
+          # Configure the macOS build (ephemeral xcconfig + codegen) but let
+          # xcodebuild archive/export do the signing + packaging. Hand-rolling
+          # the .pkg with productbuild fails on CI because it can't use the
+          # installer private key without a UI prompt
+          # (CSSMERR_CSP_NO_USER_INTERACTION); xcodebuild goes through the
+          # Codemagic keychain correctly, exactly like the iOS `flutter build
+          # ipa` path. use-profiles already applied the MAC_APP_STORE profile +
+          # Apple Distribution cert; export_options.plist (written by
+          # use-profiles) carries the profile map and `app-store` method.
+          flutter build macos --release --config-only \
             --build-number=$PROJECT_BUILD_NUMBER
-          APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
-          INSTALLER_CERT=$(security find-identity -v \
-            | grep -E "Mac Developer Installer|Apple Distribution|Installer Distribution" \
-            | head -1 | sed -E 's/.*"(.*)"/\1/')
-          xcrun productbuild --component "$APP" /Applications \
-            --sign "$INSTALLER_CERT" "$CM_BUILD_DIR/chess_reader.pkg"
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration Release \
+            -archivePath build/macos/Runner.xcarchive \
+            archive
+          xcodebuild -exportArchive \
+            -archivePath build/macos/Runner.xcarchive \
+            -exportOptionsPlist /Users/builder/export_options.plist \
+            -exportPath build/macos/export
     artifacts:
-      - chess_reader.pkg
+      - $FLUTTER_PROJECT/build/macos/export/*.pkg
       - /tmp/xcodebuild_logs/*.log
     publishing:
       app_store_connect:
