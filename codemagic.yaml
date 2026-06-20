@@ -321,15 +321,30 @@ workflows:
             || plutil -replace installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST"
           echo "--- export_options.plist ---"; plutil -p "$EOPLIST"
           # productbuild (run inside exportArchive) signs the .pkg with the
-          # installer key and dies with CSSMERR_CSP_NO_USER_INTERACTION unless
-          # that key grants non-interactive access. Apply it right before
-          # export, and echo each result so we can see what actually worked.
+          # installer key and fails with CSSMERR_CSP_NO_USER_INTERACTION: as
+          # imported by Codemagic, that key's ACL/partition-list doesn't grant
+          # productbuild non-interactive access, and set-key-partition-list
+          # didn't fix it on this Xcode 26 runner. So re-import the installer
+          # identity ourselves with `-A` (allow ALL applications), which removes
+          # the per-app ACL prompt entirely. The installer cert's private key is
+          # the same RSA key every cert was created from (CERTIFICATE_PRIVATE_KEY);
+          # pair it with the public cert already in the keychain to rebuild a
+          # .p12 we can import unrestricted.
           KEYCHAIN=$(security default-keychain | tr -d ' "')
           echo "keychain: $KEYCHAIN"
           security unlock-keychain -p ci "$KEYCHAIN" \
             && echo "unlock: OK" || echo "unlock: FAILED (password not 'ci')"
-          # Never auto-lock mid-build.
-          security set-keychain-settings "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"   # disable auto-lock
+          printf '%s\n' "$CERTIFICATE_PRIVATE_KEY" > /tmp/installer_key.pem
+          security find-certificate -c "3rd Party Mac Developer Installer" \
+            -p "$KEYCHAIN" > /tmp/installer_cert.pem
+          openssl pkcs12 -export -inkey /tmp/installer_key.pem \
+            -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci \
+            || openssl pkcs12 -export -legacy -inkey /tmp/installer_key.pem \
+            -in /tmp/installer_cert.pem -out /tmp/installer.p12 -passout pass:ci
+          security import /tmp/installer.p12 -k "$KEYCHAIN" -P ci -A \
+            -T /usr/bin/productbuild -T /usr/bin/productsign \
+            && echo "import -A: OK" || echo "import -A: FAILED (may already exist)"
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN" \
             && echo "partition-list: OK" || echo "partition-list: FAILED"
@@ -338,7 +353,8 @@ workflows:
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
             -exportPath build/macos/export || {
-              echo "=== exportArchive failed — dumping Xcode distribution logs ==="
+              echo "=== exportArchive failed — keychain state + distribution logs ==="
+              echo "--- identities (re-print) ---"; security find-identity -v "$KEYCHAIN"
               D=$(ls -dt /var/folders/*/*/T/Runner_*.xcdistributionlogs 2>/dev/null | head -1)
               echo "logdir: $D"
               cat "$D"/*.log 2>/dev/null
