@@ -254,7 +254,12 @@ workflows:
     scripts:
       - name: Set up App Store signing
         script: |
-          keychain initialize
+          # Initialize the build keychain with a password WE know. Codemagic's
+          # default generates a random password we can't retrieve, which blocks
+          # the set-key-partition-list below (without it, productbuild can't use
+          # the installer key and dies with CSSMERR_CSP_NO_USER_INTERACTION).
+          # This is a throwaway keychain on an isolated VM, so a literal is fine.
+          keychain initialize --password ci
           # App-distribution cert + MAC_APP_STORE provisioning profile.
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --platform MAC_OS \
@@ -271,6 +276,12 @@ workflows:
             --certificate-key "@env:CERTIFICATE_PRIVATE_KEY" \
             --save
           keychain add-certificates
+          # Grant non-interactive access to the imported private keys for the
+          # Apple signing tools (codesign works without this, but productbuild —
+          # which signs the .pkg with the installer key — needs apple-tool:).
+          KEYCHAIN=$(security default-keychain | tr -d ' "')
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k ci "$KEYCHAIN"
           xcode-project use-profiles
       - name: Use CocoaPods instead of Swift Package Manager
         script: |
@@ -315,13 +326,6 @@ workflows:
           plutil -insert installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST" 2>/dev/null \
             || plutil -replace installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST"
           echo "--- export_options.plist ---"; plutil -p "$EOPLIST"
-          # Best-effort: let the productbuild that exportArchive runs internally
-          # use the installer private key without a UI prompt. Codemagic's
-          # keychain add-certificates usually sets this, but Xcode 26's
-          # productbuild can still hit CSSMERR_CSP_NO_USER_INTERACTION.
-          KEYCHAIN=$(security default-keychain | tr -d ' "')
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "" "$KEYCHAIN" 2>/dev/null || true
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
