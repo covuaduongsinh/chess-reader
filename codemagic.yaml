@@ -297,6 +297,12 @@ workflows:
             -configuration Release \
             -archivePath build/macos/Runner.xcarchive \
             archive
+          # use-profiles writes export_options.plist with method "ad-hoc";
+          # Xcode 16 wants "app-store-connect" for a Mac App Store .pkg. Patch
+          # just that key — the auto-generated provisioning-profile map (which
+          # we must NOT hardcode, its name changes per run) stays intact.
+          plutil -replace method -string app-store-connect \
+            /Users/builder/export_options.plist
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
