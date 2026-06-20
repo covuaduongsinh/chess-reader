@@ -32,12 +32,15 @@ flutter_macos_podfile_setup
 # static globally, though: multistockfish_sf16 (the FFI Stockfish engine) is
 # opened at runtime with `DynamicLibrary.open('multistockfish_sf16.framework/
 # ...')`, so it MUST be a dynamic framework or the engine fails to load. So we
-# keep dynamic `use_frameworks!` and force ONLY the onnxruntime pods to build
-# as static libraries (they then link into the flutter_onnxruntime framework).
+# keep dynamic `use_frameworks!` and force the whole onnxruntime chain to
+# static libraries — onnxruntime-c / onnxruntime-objc (which vendor the static
+# binaries) AND flutter_onnxruntime itself, otherwise the dynamic
+# flutter_onnxruntime framework transitively depends on a static binary and
+# CocoaPods' verify_no_static_framework_transitive_dependencies rejects it.
 # Mirrors ios/Podfile.
 pre_install do |installer|
   installer.pod_targets.each do |pod|
-    if pod.name.start_with?('onnxruntime')
+    if pod.name.include?('onnxruntime')
       def pod.build_type
         Pod::BuildType.static_library
       end
