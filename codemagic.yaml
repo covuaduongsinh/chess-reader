@@ -297,24 +297,24 @@ workflows:
             -configuration Release \
             -archivePath build/macos/Runner.xcarchive \
             archive
-          # use-profiles writes export_options.plist with method "ad-hoc";
-          # Xcode 16 wants "app-store-connect" for a Mac App Store .pkg. Patch
-          # just that key — the auto-generated provisioning-profile map (which
-          # we must NOT hardcode, its name changes per run) stays intact.
-          plutil -replace method -string app-store-connect \
-            /Users/builder/export_options.plist
-          # Pin the APP signing identity to "Apple Distribution". Otherwise,
-          # with both that and the "3rd Party Mac Developer Installer" cert in
-          # the keychain, exportArchive mis-selects the installer cert for the
-          # app and fails ("provisioning profile doesn't include signing
-          # certificate ...Installer..."). The installer cert is still used
-          # automatically to sign the .pkg.
-          /usr/libexec/PlistBuddy -c \
-            "Add :signingCertificate string 'Apple Distribution'" \
-            /Users/builder/export_options.plist 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c \
-            "Set :signingCertificate 'Apple Distribution'" \
-            /Users/builder/export_options.plist
+          # Patch the export_options.plist that use-profiles generated:
+          #  * method: it writes "ad-hoc"; Xcode 16 wants "app-store-connect".
+          #  * signingCertificate / installerSigningCertificate: the keychain
+          #    holds BOTH an "Apple Distribution" (app) cert and a "3rd Party
+          #    Mac Developer Installer" (pkg) cert. Without telling exportArchive
+          #    which is which, it mis-treats the installer cert as the app
+          #    signing identity and validates it against the provisioning
+          #    profile -> "profile doesn't include signing certificate
+          #    ...Installer...". Pinning both roles disambiguates it.
+          # The auto-generated provisioning-profile map (name changes per run,
+          # so never hardcoded) is left untouched.
+          EOPLIST=/Users/builder/export_options.plist
+          plutil -replace method -string app-store-connect "$EOPLIST"
+          plutil -insert signingCertificate -string "Apple Distribution" "$EOPLIST" 2>/dev/null \
+            || plutil -replace signingCertificate -string "Apple Distribution" "$EOPLIST"
+          plutil -insert installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST" 2>/dev/null \
+            || plutil -replace installerSigningCertificate -string "3rd Party Mac Developer Installer" "$EOPLIST"
+          echo "--- export_options.plist ---"; plutil -p "$EOPLIST"
           xcodebuild -exportArchive \
             -archivePath build/macos/Runner.xcarchive \
             -exportOptionsPlist /Users/builder/export_options.plist \
