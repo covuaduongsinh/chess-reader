@@ -4,7 +4,7 @@
 ; IDE (defaults below point at a local release build).
 
 #define MyAppName "ChessBook Reader"
-#define MyAppExe "chess_reader.exe"
+#define MyAppExe "chessbook_reader.exe"
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"

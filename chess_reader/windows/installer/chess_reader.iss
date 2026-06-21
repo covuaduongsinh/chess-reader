@@ -6,7 +6,7 @@
 #define MyAppName "ChessBook Reader"
 #define MyAppVersion "1.2.3"
 #define MyAppPublisher "Vu-Hung Quan"
-#define MyAppExeName "chess_reader.exe"
+#define MyAppExeName "chessbook_reader.exe"
 ; Release build output, relative to this script (windows\installer).
 #define ReleaseDir "..\..\build\windows\x64\runner\Release"
 

@@ -4,7 +4,7 @@ project(chess_reader LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "chess_reader")
+set(BINARY_NAME "chessbook_reader")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

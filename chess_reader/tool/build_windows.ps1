@@ -27,8 +27,8 @@ if (-not (Test-Path "assets\engines\stockfish-windows-x86-64-avx2.exe")) {
 
 Write-Host "Building ChessBook Reader $version for Windows..."
 flutter build windows --release
-if (-not (Test-Path "$release\chess_reader.exe")) {
-    throw "build failed: $release\chess_reader.exe not found"
+if (-not (Test-Path "$release\chessbook_reader.exe")) {
+    throw "build failed: $release\chessbook_reader.exe not found"
 }
 
 New-Item -ItemType Directory -Force $dist | Out-Null
