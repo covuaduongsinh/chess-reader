@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -46,4 +47,25 @@ Future<String> importBook(String sourcePath) async {
 Future<Directory> _booksDir() async {
   final support = await getApplicationSupportDirectory();
   return Directory(p.join(support.path, 'books'));
+}
+
+/// The bundled sample book shipped in the app's assets, so first-time users
+/// have something to open without picking a file.
+const _kSampleAsset = 'assets/sample/My System.pdf';
+
+/// Materialises the bundled sample book onto disk (a stable, app-private path)
+/// and returns it, so it flows through the normal open pipeline like any picked
+/// book. Idempotent: reuses the existing copy when sizes match.
+Future<String> extractSampleBook() async {
+  final dir = Directory(p.join((await _booksDir()).path, 'samples'));
+  final dest = File(p.join(dir.path, p.basename(_kSampleAsset)));
+  final data = await rootBundle.load(_kSampleAsset);
+  final bytes =
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  if (await dest.exists() && await dest.length() == bytes.length) {
+    return dest.path;
+  }
+  await dir.create(recursive: true);
+  await dest.writeAsBytes(bytes, flush: true);
+  return dest.path;
 }

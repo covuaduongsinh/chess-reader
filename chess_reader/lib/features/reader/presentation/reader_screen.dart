@@ -67,13 +67,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('No text found in this PDF'),
+          title: const Text('Scanned PDF — diagrams still work'),
           content: const Text(
-            'This PDF looks like scanned page images — it has no extractable '
-            'text. Clickable moves and the reflowed Reading view won\'t work, '
-            'but the original pages and diagram detection still do.\n\n'
-            'To enable moves and the reading view, run the file through an OCR '
-            'tool (e.g. OCRmyPDF) to add a text layer, then reopen it.',
+            'This PDF looks like scanned page images, so it has no extractable '
+            'text. The good news: the original pages display normally and '
+            'diagram detection still reads the printed positions onto the '
+            'board — just tap a diagram to play through it.\n\n'
+            'Only two text-based features are unavailable: tapping moves in the '
+            'text and the reflowed Reading view. To enable those as well, run '
+            'the file through an OCR tool (e.g. OCRmyPDF) to add a text layer, '
+            'then reopen it.',
           ),
           actions: [
             TextButton(
@@ -183,7 +186,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return Scaffold(
       endDrawer: bookPath != null ? ReaderDrawer(path: bookPath) : null,
       appBar: AppBar(
-        title: const Text('Chess Reader'),
+        title: const Text('ChessBook Reader'),
         actions: [
           if (showViewToggle) _ViewToggle(path: bookPath),
           OpenBookButton(tooltip: bookPath == null ? null : 'Open another book'),
@@ -321,8 +324,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   /// Phone default: book fills the screen with a toggleable bottom board panel.
+  /// When expanded the board is drag-resizable (same `boardFraction` setting and
+  /// `_ResizeHandle` as the explicit side/top/bottom splits); the chevron still
+  /// collapses it away entirely.
   Widget _narrowCollapsible(
       BoxConstraints constraints, Widget bookPane, Widget boardPane) {
+    final fraction = ref.watch(settingsProvider.select((s) => s.boardFraction));
+    final total = constraints.maxHeight;
     return Column(
       children: [
         Expanded(child: bookPane),
@@ -341,14 +349,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       : Icons.keyboard_arrow_up),
                 ),
               ),
-              if (_boardVisibleNarrow)
+              if (_boardVisibleNarrow) ...[
+                _ResizeHandle(
+                  axis: Axis.vertical,
+                  // The board is the bottom pane: dragging the handle up grows it.
+                  onDelta: (d) => ref
+                      .read(settingsProvider.notifier)
+                      .setBoardFraction(fraction - d / total),
+                ),
                 SizedBox(
-                  height: constraints.maxHeight * 0.5,
+                  height: total * fraction,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: boardPane,
                   ),
                 ),
+              ],
             ],
           ),
         ),

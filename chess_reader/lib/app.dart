@@ -11,7 +11,7 @@ class ChessReaderApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
-      title: 'Chess Reader',
+      title: 'ChessBook Reader',
       themeMode: themeMode,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.brown),

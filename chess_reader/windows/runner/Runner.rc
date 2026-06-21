@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.alpinist" "\0"
-            VALUE "FileDescription", "chess_reader" "\0"
+            VALUE "FileDescription", "ChessBook Reader" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "chess_reader" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.alpinist. All rights reserved." "\0"
             VALUE "OriginalFilename", "chess_reader.exe" "\0"
-            VALUE "ProductName", "chess_reader" "\0"
+            VALUE "ProductName", "ChessBook Reader" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

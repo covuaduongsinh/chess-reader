@@ -3,7 +3,7 @@
 # Run on Windows with Flutter + Visual Studio (Desktop C++) + Inno Setup 6:
 #   powershell -ExecutionPolicy Bypass -File tool\build_windows.ps1
 #
-# Output: dist\chess_reader-setup-<version>.exe
+# Output: dist\chessbook-reader-setup-<version>.exe
 #
 # Notes:
 # - The installer is unsigned (no code-signing cert needed). On first launch
@@ -25,7 +25,7 @@ if (-not (Test-Path "assets\engines\stockfish-windows-x86-64-avx2.exe")) {
     & (Join-Path $PSScriptRoot "fetch_stockfish.ps1")
 }
 
-Write-Host "Building Chess Reader $version for Windows..."
+Write-Host "Building ChessBook Reader $version for Windows..."
 flutter build windows --release
 if (-not (Test-Path "$release\chess_reader.exe")) {
     throw "build failed: $release\chess_reader.exe not found"
@@ -47,4 +47,4 @@ if (-not $iscc) { throw "ISCC.exe not found; install Inno Setup 6" }
     "tool\installer.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
-Write-Host "Created $dist\chess_reader-setup-$version.exe"
+Write-Host "Created $dist\chessbook-reader-setup-$version.exe"

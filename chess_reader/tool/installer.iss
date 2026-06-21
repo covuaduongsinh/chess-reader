@@ -1,9 +1,9 @@
-; Inno Setup script for Chess Reader (Windows).
+; Inno Setup script for ChessBook Reader (Windows).
 ; Compiled by tool/build_windows.ps1, which passes MyAppVersion / SourceDir /
 ; OutputDir on the command line. Can also be opened directly in the Inno Setup
 ; IDE (defaults below point at a local release build).
 
-#define MyAppName "Chess Reader"
+#define MyAppName "ChessBook Reader"
 #define MyAppExe "chess_reader.exe"
 
 #ifndef MyAppVersion
@@ -17,8 +17,10 @@
 #endif
 
 [Setup]
-; Stable AppId — keep constant across releases so upgrades replace in place.
-AppId={{B7E6B3A2-4C9D-4F1E-8A3B-2D5F6C1A9E40}
+; Stable AppId for ChessBook Reader — keep constant across releases so upgrades
+; replace in place. (New GUID at the 1.0.0 rebrand; the old Chess Reader product
+; used a different one and is left untouched.)
+AppId={{A0B4FD34-F243-41AF-847D-ADDEA3A9CB22}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -28,7 +30,7 @@ DisableProgramGroupPage=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExe}
 OutputDir={#OutputDir}
-OutputBaseFilename=chess_reader-setup-{#MyAppVersion}
+OutputBaseFilename=chessbook-reader-setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

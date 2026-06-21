@@ -1,0 +1,10 @@
+My System — Aron Nimzowitsch.
+
+Bundled as the app's sample book. This is a PUBLIC DOMAIN edition: the work was
+first published in German ("Mein System", 1925); the classic English translation
+by Philip Hereford was published in 1929 and entered the U.S. public domain on
+1 January 2025 (95 years after publication). Sourced from the Internet Archive.
+
+It is included as a free sample so first-time users have a book to open and test
+diagram detection with. If you replace it, keep the asset path referenced in
+pubspec.yaml (assets/sample/) and update this note.

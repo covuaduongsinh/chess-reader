@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../core/persistence/library_store.dart';
 import '../reader/state/book_providers.dart';
 import 'book_cover.dart';
+import 'book_import.dart';
 import 'open_book_button.dart';
 
 /// Shown when no book is open: a prominent "open" action plus a bookshelf grid
@@ -31,6 +32,15 @@ class LibraryHome extends ConsumerWidget {
                   size: 64, color: theme.colorScheme.outline),
               const SizedBox(height: 16),
               const OpenBookButton(filled: true),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.auto_stories),
+                label: const Text('Try the sample book'),
+                onPressed: () async {
+                  final path = await extractSampleBook();
+                  ref.read(openedBookProvider.notifier).open(path);
+                },
+              ),
             ],
           ),
         ),
