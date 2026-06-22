@@ -1,4 +1,4 @@
-# Codemagic CI config for Chess Reader.
+# Codemagic CI config for ChessBook Reader.
 #
 # The Flutter app lives in the chess_reader/ subfolder of this repo, so every
 # build step cd's into it first.
@@ -48,7 +48,7 @@ workflows:
         - appstore
       vars:
         FLUTTER_PROJECT: chess_reader
-        BUNDLE_ID: com.alpinist.chessReader
+        BUNDLE_ID: com.alpinist.chessbookReader
     scripts:
       - name: Set up code signing
         script: |
@@ -117,9 +117,9 @@ workflows:
           rm -rf Payload
           mkdir Payload
           cp -R Runner.app Payload/
-          zip -r "$CM_BUILD_DIR/chess_reader-unsigned.ipa" Payload
+          zip -r "$CM_BUILD_DIR/chessbook-reader-unsigned.ipa" Payload
     artifacts:
-      - chess_reader-unsigned.ipa
+      - chessbook-reader-unsigned.ipa
 
   macos-dmg:
     name: macOS DMG (unsigned)
@@ -142,10 +142,10 @@ workflows:
         script: |
           cd "$FLUTTER_PROJECT"
           APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
-          hdiutil create -volname "Chess Reader" -srcfolder "$APP" \
-            -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
+          hdiutil create -volname "ChessBook Reader" -srcfolder "$APP" \
+            -ov -format UDZO "$CM_BUILD_DIR/chessbook-reader.dmg"
     artifacts:
-      - chess_reader.dmg
+      - chessbook-reader.dmg
 
   # ---------------------------------------------------------------------------
   # Developer ID-signed + notarized .dmg (direct download, NOT App Store).
@@ -215,15 +215,15 @@ workflows:
         script: |
           cd "$FLUTTER_PROJECT"
           APP=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
-          hdiutil create -volname "Chess Reader" -srcfolder "$APP" \
-            -ov -format UDZO "$CM_BUILD_DIR/chess_reader.dmg"
+          hdiutil create -volname "ChessBook Reader" -srcfolder "$APP" \
+            -ov -format UDZO "$CM_BUILD_DIR/chessbook-reader.dmg"
           # Notarize the .dmg with the App Store Connect API key (the integration
           # injects APP_STORE_CONNECT_* env vars), then staple the ticket so it
           # validates offline.
-          app-store-connect notarize "$CM_BUILD_DIR/chess_reader.dmg"
-          xcrun stapler staple "$CM_BUILD_DIR/chess_reader.dmg"
+          app-store-connect notarize "$CM_BUILD_DIR/chessbook-reader.dmg"
+          xcrun stapler staple "$CM_BUILD_DIR/chessbook-reader.dmg"
     artifacts:
-      - chess_reader.dmg
+      - chessbook-reader.dmg
 
   # ---------------------------------------------------------------------------
   # Mac App Store: build + submit from Xcode on a Mac, NOT from CI.
@@ -238,7 +238,7 @@ workflows:
   # only the final installer signature needs an interactive session.
   #
   # So produce the .pkg from your Mac, where the keychain can grant access:
-  #   0. App Store Connect: enable the macOS platform on the com.alpinist.chessReader
+  #   0. App Store Connect: enable the macOS platform on the com.alpinist.chessbookReader
   #      app record. App Sandbox + file access are set in Release.entitlements;
   #      LSApplicationCategoryType is set in Info.plist.
   #   1. git checkout this branch; cd chess_reader

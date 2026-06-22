@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// App version shown in the About box. Keep in sync with pubspec `version`.
-const String kAppVersion = '1.6.0';
+const String kAppVersion = '1.0.0';
 
 /// Where users can obtain the corresponding source code. Bundling Stockfish
 /// (GPL v3) obliges us to offer its source; we link both upstream Stockfish
@@ -18,7 +18,7 @@ void registerStockfishLicense() {
   LicenseRegistry.addLicense(() async* {
     yield const LicenseEntryWithLineBreaks(
       ['Stockfish'],
-      'Chess Reader bundles the Stockfish chess engine, run in-process via '
+      'ChessBook Reader bundles the Stockfish chess engine, run in-process via '
       'Dart FFI.\n\n'
       'Stockfish is free software: you can redistribute it and/or modify it '
       'under the terms of the GNU General Public License as published by the '
@@ -42,7 +42,7 @@ void registerStockfishLicense() {
 void showAppAboutDialog(BuildContext context) {
   showAboutDialog(
     context: context,
-    applicationName: 'Chess Reader',
+    applicationName: 'ChessBook Reader',
     applicationVersion: kAppVersion,
     applicationIcon: const Icon(Icons.menu_book, size: 40),
     applicationLegalese:
@@ -77,7 +77,7 @@ void showAppAboutDialog(BuildContext context) {
         url: _kStockfishSourceUrl,
       ),
       _SourceLink(
-        label: 'Chess Reader source code',
+        label: 'ChessBook Reader source code',
         url: _kAppSourceUrl,
       ),
     ],

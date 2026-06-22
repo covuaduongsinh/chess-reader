@@ -1,17 +1,17 @@
-; Inno Setup script for Chess Reader.
+; Inno Setup script for ChessBook Reader.
 ; Compile with:
 ;   "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" windows\installer\chess_reader.iss
-; Produces dist\chess_reader-setup-<version>.exe from the release build.
+; Produces dist\chessbook-reader-setup-<version>.exe from the release build.
 
-#define MyAppName "Chess Reader"
+#define MyAppName "ChessBook Reader"
 #define MyAppVersion "1.2.3"
 #define MyAppPublisher "Vu-Hung Quan"
-#define MyAppExeName "chess_reader.exe"
+#define MyAppExeName "chessbook_reader.exe"
 ; Release build output, relative to this script (windows\installer).
 #define ReleaseDir "..\..\build\windows\x64\runner\Release"
 
 [Setup]
-AppId={{B7E6F3A2-9C41-4E7B-9D2A-CHESSREADER01}
+AppId={{799AF844-4FE1-49BB-9A4D-8F13E380DE2C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -26,7 +26,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=..\..\dist
-OutputBaseFilename=chess_reader-setup-{#MyAppVersion}
+OutputBaseFilename=chessbook-reader-setup-{#MyAppVersion}
 SetupIconFile=..\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
