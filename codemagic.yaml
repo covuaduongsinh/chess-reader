@@ -48,7 +48,7 @@ workflows:
         - appstore
       vars:
         FLUTTER_PROJECT: chess_reader
-        BUNDLE_ID: com.alpinist.chessbookReader
+        BUNDLE_ID: com.alpinist.chessBookReader
     scripts:
       - name: Set up code signing
         script: |
@@ -238,7 +238,7 @@ workflows:
   # only the final installer signature needs an interactive session.
   #
   # So produce the .pkg from your Mac, where the keychain can grant access:
-  #   0. App Store Connect: enable the macOS platform on the com.alpinist.chessbookReader
+  #   0. App Store Connect: enable the macOS platform on the com.alpinist.chessBookReader
   #      app record. App Sandbox + file access are set in Release.entitlements;
   #      LSApplicationCategoryType is set in Info.plist.
   #   1. git checkout this branch; cd chess_reader
